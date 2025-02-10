@@ -208,8 +208,8 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
             stats->read_misses_l2++;
             // Read-allocate the block into L2.
             block_t dummy;
-            cache_insert(&l2, 'R', addr, &dummy);
-            
+            cache_insert(&l2, READ, addr, &dummy);
+
             // Early Restart enabled: use the word offset.
             uint64_t word_offset = l2.block_size / WORD_SIZE;
             if (l2.enable_ER) {
