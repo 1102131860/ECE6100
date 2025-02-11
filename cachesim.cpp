@@ -1,8 +1,8 @@
 #include "cachesim.hpp"
 #include <vector>
 #include <deque>        // a double-linked list (FIFO)
-#include <cmath>        // for log2 operation
-#include <cstdio>       // for printf debug
+#include <cmath>        // log2 operation
+#include <cstdio>       // debug
 
 using namespace std;
 
@@ -14,7 +14,7 @@ typedef struct block {
 
 typedef struct victim_cache {
     uint64_t num_block;     // the number of blocks it can hold, must be 0, 1 or 2, zero disables the victim cache
-    deque<block_t> entries;   // the entries hold the evicted blocks from cache l1
+    deque<block_t> entries; // the entries hold the evicted blocks from cache l1
 } victim_cache_t;
 
 typedef struct cache {
@@ -42,6 +42,16 @@ uint64_t get_index(uint64_t address, uint64_t block_size, uint64_t num_set) {
     return (address / block_size) % num_set;   // take out the index from tag 
 }
 
+double get_miss_penalty(uint64_t address, uint64_t block_size, bool enable_ER) {
+    uint64_t word_offset = block_size / WORD_SIZE; 
+    // Early Restart enabled: use the word offset.
+    if (enable_ER) {
+        uint64_t block_offset = address % block_size;       // byte offset within block
+        word_offset = block_offset / WORD_SIZE;             // which word (0-indexed)
+    }
+    return DRAM_AT + (DRAM_AT_PER_WORD * word_offset);
+}
+
 void cache_setup(cache_t *ca, cache_config_t config) {
     ca->disabled = config.disabled;
     ca->enable_ER = config.enable_ER;
@@ -60,29 +70,33 @@ void victim_cache_setup(victim_cache_t *vc, uint64_t entries) {
 }
 
 bool cache_insert(cache_t *ca, char rw, uint64_t address, block_t *evicted_block) {
+    // when disabled, don't actually insert
+    if (ca->disabled)
+        return false;
+
     uint64_t index = get_index(address, ca->block_size, ca->num_set);
     uint64_t tag = get_tag(address, ca->block_size, ca->num_set);
     bool isDirty = (rw == WRITE && ca->wrst == WRITE_STRAT_WBWA);     // WBWA needs to mark the written data as dirty
     block_t inserted_block = {tag, address, isDirty};
     bool isEvicted = false;
 
-    if (ca->sets[index].size() >= ca->set_size) {       // set is full
-        if (ca->repo != REPLACEMENT_POLICY_RANDOM) {    // LRU-MIP, LRU-LIP, FIFO
+    if (ca->sets[index].size() >= ca->set_size) {
+        if (ca->repo != REPLACEMENT_POLICY_RANDOM) {    // MIP, LIP, FIFO
             *evicted_block = ca->sets[index].front();
-            ca->sets[index].pop_front();
+            ca->sets[index].pop_front();                // LRU
         } else {                                        // RANDOM
-            uint64_t evicted_index = (uint64_t)(evict_random() % ca->sets[index].size());
+            uint64_t evicted_index = (uint64_t)(evict_random() % (ca->sets[index].size() - 1));
             auto evicted_block_it = ca->sets[index].begin() + evicted_index;
             *evicted_block = *evicted_block_it;
-            ca->sets[index].erase(evicted_block_it);
+            ca->sets[index].erase(evicted_block_it);    // random position
         }
         isEvicted = true;
     }
 
     if (ca->repo == REPLACEMENT_POLICY_LIP)
-        ca->sets[index].push_front(inserted_block);     // LRU-LIP
+        ca->sets[index].push_front(inserted_block);     // LIP
     else
-        ca->sets[index].push_back(inserted_block);      // LRU-MIP or FIFO or RANDOM
+        ca->sets[index].push_back(inserted_block);      // MIP or FIFO or RANDOM
     return isEvicted;
 }
 
@@ -98,7 +112,7 @@ bool cache_access(cache_t *ca, char rw, uint64_t address) {
                     it->isDirty = true;                 // make the written block dirty
                 block_t hit_block = *it;
                 ca->sets[index].erase(it);
-                ca->sets[index].push_back(hit_block);   // last block is MRU
+                ca->sets[index].push_back(hit_block);   // MIP
             }
             // FIFO and RANDOM do nothing
             return true;
@@ -108,33 +122,34 @@ bool cache_access(cache_t *ca, char rw, uint64_t address) {
 }
 
 bool victim_cache_insert(victim_cache_t *vc, block_t inserted_block, block_t *evicted_block) {
+    // when disabled, don't actually insert
+    if (vc->num_block == 0) 
+        return false;
+    
     bool isEvicted = false;
     if (vc->entries.size() >= vc->num_block) {
         // the victim cache is full
         *evicted_block = vc->entries.front();
         vc->entries.pop_front();                // LRU
-        isEvicted = true;
+        isEvicted = true; 
     }
     vc->entries.push_back(inserted_block);      // MIP
     return isEvicted;
 }
 
-bool victim_cache_access(victim_cache_t *vc, cache_t *l1, char rw, uint64_t address) {
+bool victim_cache_access(victim_cache_t *vc, cache_t *l1, uint64_t address) {
     uint64_t index = get_index(address, l1->block_size, l1->num_set);
     uint64_t tag = get_tag(address, l1->block_size, l1->num_set);
 
     for (auto it = vc->entries.begin(); it != vc->entries.end(); ++it) {
         if (it->tag == tag) {
-            block_t vc_victim_block = *it;
+            // literal swap
+            block_t vc_victim_block = *it; 
+            block_t l1_victim_block = l1->sets[index].front();
             vc->entries.erase(it);
-            // swap
-            if (!l1->sets[index].empty()) { 
-                block_t l1_victim_block = l1->sets[index].front();
-                l1->sets[index].pop_front();
-                vc->entries.push_back(l1_victim_block);
-            }
-            // no matter l1's set is empty or not
-            l1->sets[index].push_back(vc_victim_block);
+            l1->sets[index].pop_front();                    // LRU
+            vc->entries.push_back(l1_victim_block);         // MIP
+            l1->sets[index].push_back(vc_victim_block);     // MIP
             return true;
         }
     }
@@ -156,23 +171,15 @@ void evict_srand(unsigned int seed)
 }
 /*----------------------------------------------------------*/
 
-/**
- * Subroutine for initializing the cache simulator. You many add and initialize any global or heap
- * variables as needed.
- * TODO: You're responsible for completing this routine
- */
 void sim_setup(sim_config_t *config) {
     cache_setup(&l1, config->l1_config);
     victim_cache_setup(&vc, config->victim_cache_entries);
     cache_setup(&l2, config->l2_config);
 }
 
-/**
- * Subroutine that simulates the cache one trace event at a time.
- * TODO: You're responsible for completing this routine
- */
 void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
-    bool hit_l1, hit_vc, hit_l2;
+    bool hit_l1, hit_vc, hit_l2, l1_evicted, vc_evicted;
+    block_t evicted_block_l1, evicted_block_vc;
 
     if (rw == READ)
         stats->reads++;
@@ -189,117 +196,63 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
     stats->misses_l1++;
 
     // ----- Step 2. On L1 miss, check victim cache if enabled -----
-    if (vc.num_block > 0) {
-        hit_vc = victim_cache_access(&vc, &l1, rw, addr);
-        if (hit_vc) {
-            stats->hits_victim_cache++;
-            return;
-        }
-        stats->misses_victim_cache++;
+    hit_vc = victim_cache_access(&vc, &l1, addr);
+    if (hit_vc) {
+        stats->hits_victim_cache++;
+        return;
     }
+    stats->misses_victim_cache++;
 
     // ----- Step 3. L1 and victim miss – access L2 (always a read first) -----
-    if (!l2.disabled) {
-        stats->reads_l2++;
-        hit_l2 = cache_access(&l2, READ, addr);
-        if (hit_l2) {
-            stats->read_hits_l2++;
-        } else {
-            stats->read_misses_l2++;
-            // Read-allocate the block into L2.
-            block_t dummy;
-            cache_insert(&l2, READ, addr, &dummy);
-
-            // Early Restart enabled: use the word offset.
-            uint64_t word_offset = l2.block_size / WORD_SIZE;
-            if (l2.enable_ER) {
-                uint64_t block_offset = addr % l2.block_size;       // byte offset within block
-                word_offset = block_offset / WORD_SIZE;             // which word (0-indexed)
-            }
-            double miss_penalty = DRAM_AT + (DRAM_AT_PER_WORD * word_offset);
-            stats->cumulative_l2_mp += miss_penalty;
-        }
+    stats->reads_l2++;
+    hit_l2 = cache_access(&l2, READ, addr);
+    if (hit_l2) {
+        stats->read_hits_l2++;
+    } else {
+        stats->read_misses_l2++;
+        // Read-allocate the block into L2.
+        block_t dummy;
+        cache_insert(&l2, READ, addr, &dummy);
+        // Sum up the L2 miss penalty.
+        stats->cumulative_l2_mp += get_miss_penalty(addr, l2.block_size, l2.enable_ER);
     }
 
     // ----- Step 4. Now fetch the block into L1 (from L2 or memory) -----
-    bool l1_evicted, vc_evicted;
-    block_t evicted_block_l1, evicted_block_vc;
-    
     l1_evicted = cache_insert(&l1, rw, addr, &evicted_block_l1);
+    // only dirty block will be inserted into victim cache
     if (l1_evicted && evicted_block_l1.isDirty) {
         stats->write_backs_l1_or_victim_cache++;
-        // victim cache is enabled
-        if (vc.num_block > 0) {
-            vc_evicted = victim_cache_insert(&vc, evicted_block_l1, &evicted_block_vc);
-            if (vc_evicted && evicted_block_vc.isDirty && !l2.disabled) {
-                stats->writes_l2++;
-                cache_access(&l2, WRITE, evicted_block_vc.address);
-                // If l2_write_hit is false, then L2 missed and no block is allocated
-            }
-        } // l2 cache is enabled
-        else if (!l2.disabled) {
-            stats->writes_l2++; 
-            cache_access(&l2, WRITE, evicted_block_l1.address);
-            // If l2_write_hit is false, then L2 missed and no block is allocated
+        vc_evicted = victim_cache_insert(&vc, evicted_block_l1, &evicted_block_vc);
+        // only dirty block will be inserted into L2 cache or victim or L2 cache is disabled 
+        if ((vc_evicted && evicted_block_vc.isDirty) || vc.num_block == 0 || l2.disabled) {
+            stats->writes_l2++;
+            // L2 cache is WTWNA
         }
-        // If L2 is disabled, the write goes directly to main memory.
     }
 }
 
-/**
- * Subroutine for cleaning up any outstanding memory operations and calculating overall statistics
- * such as miss rate or average access time.
- * TODO: You're responsible for completing this routine
- */
 void sim_finish(sim_stats_t *stats) {
-    // Use <cmath> for log2 computation.
-    double s_l1 = (l1.set_size > 0) ? log2(l1.set_size) : 0;
-    double HT_L1 = L1_HIT_TIME_CONST + (s_l1 * L1_HIT_TIME_PER_S);
-    double s_l2 = (l2.set_size > 0) ? log2(l2.set_size) : 0;
-    double HT_L2 = L2_HIT_TIME_CONST + (s_l2 * L2_HIT_TIME_PER_S);
+    double s_l1 = log2(l1.set_size);
+    double HT_L1 = (!l1.disabled) ? (L1_HIT_TIME_CONST + (s_l1 * L1_HIT_TIME_PER_S)) : 0; // no searching and hit time
+    double s_l2 = log2(l2.set_size);
+    double HT_L2 = (!l2.disabled) ? (L2_HIT_TIME_CONST + (s_l2 * L2_HIT_TIME_PER_S)) : 0; // no searching and hit time
 
     // Compute ratios.
-    stats->hit_ratio_l1 = (stats->accesses_l1 > 0) ? ((double)stats->hits_l1 / stats->accesses_l1) : 0;
-    stats->miss_ratio_l1 = (stats->accesses_l1 > 0) ? ((double)stats->misses_l1 / stats->accesses_l1) : 0;
+    stats->hit_ratio_l1 = (double)stats->hits_l1 / stats->accesses_l1;
+    stats->miss_ratio_l1 = (double)stats->misses_l1 / stats->accesses_l1;
     
-    stats->hit_ratio_victim_cache = (stats->misses_l1 > 0) ? ((double)stats->hits_victim_cache / stats->misses_l1) : 0;
-    stats->miss_ratio_victim_cache = (stats->misses_l1 > 0) ? ((double)stats->misses_victim_cache / stats->misses_l1) : 0;
+    stats->hit_ratio_victim_cache = (double)stats->hits_victim_cache / stats->misses_l1;
+    stats->miss_ratio_victim_cache = (double)stats->misses_victim_cache / stats->misses_l1;
     
-    stats->read_hit_ratio_l2 = (stats->reads_l2 > 0) ? ((double)stats->read_hits_l2 / stats->reads_l2) : 0;
-    stats->read_miss_ratio_l2 = (stats->reads_l2 > 0) ? ((double)stats->read_misses_l2 / stats->reads_l2) : 0;
+    stats->read_hit_ratio_l2 = (double)stats->read_hits_l2 / stats->reads_l2;
+    stats->read_miss_ratio_l2 = (double)stats->read_misses_l2 / stats->reads_l2;
     
-    stats->averaged_miss_penalty_l2 = (stats->read_misses_l2 > 0) ? (stats->cumulative_l2_mp / stats->read_misses_l2) : 0;
+    stats->averaged_miss_penalty_l2 = stats->cumulative_l2_mp / stats->read_misses_l2;
     
-    // Compute L2 Average Access Time (AAT).
-    double AAT_L2 = HT_L2 + (stats->read_miss_ratio_l2 * stats->averaged_miss_penalty_l2);
-    stats->avg_access_time_l2 = AAT_L2;
+    // Compute L2 Average Access Time (L2 AAT).
+    stats->avg_access_time_l2 = HT_L2 + (stats->read_miss_ratio_l2 * stats->averaged_miss_penalty_l2);
     
-    // Compute L1 Average Access Time.
-    // For L1, the miss penalty is that of an access that misses both L1 and victim cache,
-    // which we approximate here by the L2 AAT.
-    double MR_VC = (vc.num_block > 0 && stats->misses_l1 > 0) ? ((double)stats->misses_victim_cache / stats->misses_l1) : 1.0;
-    stats->avg_access_time_l1 = HT_L1 + (stats->miss_ratio_l1 * MR_VC * AAT_L2);
-
-    // Print out final statistics.
-    printf("Overall Reads: %lu\n", stats->reads);
-    printf("Overall Writes: %lu\n", stats->writes);
-    printf("L1 Accesses: %lu\n", stats->accesses_l1);
-    printf("L1 Hits: %lu\n", stats->hits_l1);
-    printf("L1 Misses: %lu\n", stats->misses_l1);
-    printf("L1 Hit Ratio: %.4f\n", stats->hit_ratio_l1);
-    printf("L1 Miss Ratio: %.4f\n", stats->miss_ratio_l1);
-    printf("Victim Cache Hits: %lu\n", stats->hits_victim_cache);
-    printf("Victim Cache Misses: %lu\n", stats->misses_victim_cache);
-    printf("Victim Cache Hit Ratio: %.4f\n", stats->hit_ratio_victim_cache);
-    printf("Victim Cache Miss Ratio: %.4f\n", stats->miss_ratio_victim_cache);
-    printf("Write-Backs (L1/Victim): %lu\n", stats->write_backs_l1_or_victim_cache);
-    printf("L2 Reads: %lu\n", stats->reads_l2);
-    printf("L2 Writes: %lu\n", stats->writes_l2);
-    printf("L2 Read Hits: %lu\n", stats->read_hits_l2);
-    printf("L2 Read Misses: %lu\n", stats->read_misses_l2);
-    printf("L2 Read Hit Ratio: %.4f\n", stats->read_hit_ratio_l2);
-    printf("L2 Read Miss Ratio: %.4f\n", stats->read_miss_ratio_l2);
-    printf("Averaged L2 Miss Penalty: %.2f ns\n", stats->averaged_miss_penalty_l2);
-    printf("L1 Average Access Time: %.2f ns\n", stats->avg_access_time_l1);
-    printf("L2 Average Access Time: %.2f ns\n", stats->avg_access_time_l2);
+    // Compute L1 Average Access Time (L1 AAT).
+    // For L1, the miss penalty is an access that misses both L1 and victim cache, which approximate here by the L2 AAT.
+    stats->avg_access_time_l1 = HT_L1 + (stats->miss_ratio_l1 * stats->miss_ratio_victim_cache * stats->avg_access_time_l2);
 }
