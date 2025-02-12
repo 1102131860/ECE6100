@@ -3,17 +3,23 @@
 #include <deque>        // a double-linked list (FIFO)
 #include <cmath>        // log2 operation
 #include <cstdio>       // debug
+#include <inttypes.h>
+
+static unsigned int count = 0;
 
 using namespace std;
 
 typedef struct block {
-    uint64_t tag;       // the front [s, B] segmentation of address
-    uint64_t address;   // the block address
+    uint64_t tag;       // for different caches, has different sizes of tag
+    uint64_t address;   // the block address, for different cache it should different tags, indexs, only block sizes are same
+    bool isValid;       // the initial block in the cache should be false;
     bool isDirty;       // signed this block data has been written or not
 } block_t;
 
 typedef struct victim_cache {
+    uint64_t block_size;    // same the l1 and l2's block size, 1 << B (2^B) bytes
     uint64_t num_block;     // the number of blocks it can hold, must be 0, 1 or 2, zero disables the victim cache
+    uint64_t num_set;       // should always be 1, as it is full associative cache
     deque<block_t> entries; // the entries hold the evicted blocks from cache l1
 } victim_cache_t;
 
@@ -35,11 +41,11 @@ static cache_t l1, l2;
 static victim_cache_t vc;
 
 uint64_t get_tag(uint64_t address, uint64_t block_size, uint64_t num_set) {
-    return address / (block_size * num_set);    // take out the tag (remove the byte offset and index)
+    return address / (block_size * num_set);
 }
 
 uint64_t get_index(uint64_t address, uint64_t block_size, uint64_t num_set) {
-    return (address / block_size) % num_set;   // take out the index from tag 
+    return (address / block_size) % num_set; 
 }
 
 double get_miss_penalty(uint64_t address, uint64_t block_size, bool enable_ER) {
@@ -63,23 +69,35 @@ void cache_setup(cache_t *ca, cache_config_t config) {
     ca->num_block = 1ULL << (config.c - config.b);          // 2^(C - B)
     ca->num_set = 1ULL << (config.c - config.b - config.s); // 2^(C - B - S)
     ca->sets.resize(ca->num_set);
+
+    uint64_t init_addr = 0x0000000000000000;
+    uint64_t init_tag = get_tag(init_addr, ca->block_size, ca->num_set);
+    bool isValid = false;
+    bool isDirty = false;
+    for (auto& set : ca->sets)
+        set = deque<block_t>(ca->set_size, block_t{init_tag, init_addr, isValid, isDirty});
 }
 
-void victim_cache_setup(victim_cache_t *vc, uint64_t entries) {
-    vc->num_block = entries;
+void victim_cache_setup(victim_cache_t *vc, uint64_t entries, uint64_t b) {
+    vc->block_size = 1ULL << b;                             // 2^b
+    vc->num_block = entries;                                // number of blocks
+    vc->num_set = 1;                                        // fully associative cache has only one set
+    
+    uint64_t init_addr = 0x0000000000000000;
+    uint64_t init_tag = get_tag(init_addr, vc->block_size, vc->num_set);
+    bool isValid = false;
+    bool isDirty = false;
+    for (auto& entry : vc->entries)
+        entry = block_t{init_tag, init_addr, isValid, isDirty};  // isValid = isDirty = false
 }
 
 bool cache_insert(cache_t *ca, char rw, uint64_t address, block_t *evicted_block) {
     // when disabled, don't actually insert
-    if (ca->disabled)
+    if (ca->disabled) 
         return false;
-
-    uint64_t index = get_index(address, ca->block_size, ca->num_set);
-    uint64_t tag = get_tag(address, ca->block_size, ca->num_set);
-    bool isDirty = (rw == WRITE && ca->wrst == WRITE_STRAT_WBWA);     // WBWA needs to mark the written data as dirty
-    block_t inserted_block = {tag, address, isDirty};
+    
     bool isEvicted = false;
-
+    uint64_t index = get_index(address, ca->block_size, ca->num_set);
     if (ca->sets[index].size() >= ca->set_size) {
         if (ca->repo != REPLACEMENT_POLICY_RANDOM) {    // MIP, LIP, FIFO
             *evicted_block = ca->sets[index].front();
@@ -93,6 +111,11 @@ bool cache_insert(cache_t *ca, char rw, uint64_t address, block_t *evicted_block
         isEvicted = true;
     }
 
+    block_t inserted_block;
+    inserted_block.tag = get_tag(address, ca->block_size, ca->num_set);
+    inserted_block.address = address;
+    inserted_block.isValid = true;
+    inserted_block.isDirty = (rw == WRITE && ca->wrst == WRITE_STRAT_WBWA); // WBWA needs to mark the written data as dirty
     if (ca->repo == REPLACEMENT_POLICY_LIP)
         ca->sets[index].push_front(inserted_block);     // LIP
     else
@@ -103,6 +126,15 @@ bool cache_insert(cache_t *ca, char rw, uint64_t address, block_t *evicted_block
 bool cache_access(cache_t *ca, char rw, uint64_t address) {
     uint64_t index = get_index(address, ca->block_size, ca->num_set);
     uint64_t tag = get_tag(address, ca->block_size, ca->num_set);
+
+
+    // const char* l1_l2 = "L2";
+    // if (ca->wrst == WRITE_STRAT_WBWA)
+    //     l1_l2 = "L1";
+    // if (count < 32)
+    //     printf("Time %d. %s decomposed address 0x%" PRIx64 " -> Tag: 0x%" PRIx64 " and Index: 0x%" PRIx64 "\n", 
+    //         count, l1_l2, address, tag, index);
+
 
     for (auto it = ca->sets[index].begin(); it != ca->sets[index].end(); ++it) {
         if (it->tag == tag) {
@@ -121,35 +153,56 @@ bool cache_access(cache_t *ca, char rw, uint64_t address) {
     return false;
 }
 
-bool victim_cache_insert(victim_cache_t *vc, block_t inserted_block, block_t *evicted_block) {
+bool victim_cache_insert(victim_cache_t *vc, uint64_t address, block_t *evicted_block) {
     // when disabled, don't actually insert
     if (vc->num_block == 0) 
         return false;
     
     bool isEvicted = false;
     if (vc->entries.size() >= vc->num_block) {
-        // the victim cache is full
         *evicted_block = vc->entries.front();
         vc->entries.pop_front();                // LRU
         isEvicted = true; 
     }
+
+    block_t inserted_block;
+    inserted_block.tag = get_tag(address, vc->block_size, vc->num_set);
+    inserted_block.address = address;
+    inserted_block.isValid = true;
+    inserted_block.isDirty = true;              // victim cache only inserts the dirty block evicted from L1
     vc->entries.push_back(inserted_block);      // MIP
     return isEvicted;
 }
 
 bool victim_cache_access(victim_cache_t *vc, cache_t *l1, uint64_t address) {
-    uint64_t index = get_index(address, l1->block_size, l1->num_set);
-    uint64_t tag = get_tag(address, l1->block_size, l1->num_set);
+    uint64_t tag = get_tag(address, vc->block_size, vc->num_set);
+
+    // if (count < 30)
+    //     printf("Time %d. Victim Cache decomposed address 0x%" PRIx64 " -> Tag: 0x%" PRIx64 "\n", count, address, tag);
 
     for (auto it = vc->entries.begin(); it != vc->entries.end(); ++it) {
         if (it->tag == tag) {
             // literal swap
-            block_t vc_victim_block = *it; 
-            block_t l1_victim_block = l1->sets[index].front();
+            block_t vc_victim_block = *it;      // vc_victim_block->isDirty must be true
             vc->entries.erase(it);
-            l1->sets[index].pop_front();                    // LRU
-            vc->entries.push_back(l1_victim_block);         // MIP
-            l1->sets[index].push_back(vc_victim_block);     // MIP
+
+            uint64_t index = get_index(address, l1->block_size, l1->num_set);
+            
+            // l1.sets[index] must be full, so that the block evicts to victim cache
+            // a test to debug whether l1.sets[index] is full
+            if (l1->sets[index].size() < l1->set_size)
+                printf("(%d) The victim_cache_access is not full in swap, which is impossible\n", ++count);
+            
+            block_t l1_victim_block = l1->sets[index].front();
+            l1->sets[index].pop_front();                // Remove LRU block from L1.sets[index].
+
+            // Re-tag the victim cache block for L1
+            vc_victim_block.tag = get_tag(vc_victim_block.address, l1->block_size, l1->num_set);
+            l1->sets[index].push_back(vc_victim_block); // Insert victim cache block into L1.
+
+            // only valid and dirty block should be stored into the victim cache, otherwise, discard it
+            if (l1_victim_block.isDirty && l1_victim_block.isValid)
+                vc->entries.push_back(l1_victim_block);
             return true;
         }
     }
@@ -173,13 +226,15 @@ void evict_srand(unsigned int seed)
 
 void sim_setup(sim_config_t *config) {
     cache_setup(&l1, config->l1_config);
-    victim_cache_setup(&vc, config->victim_cache_entries);
+    victim_cache_setup(&vc, config->victim_cache_entries, config->l1_config.b);
     cache_setup(&l2, config->l2_config);
 }
 
 void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
-    bool hit_l1, hit_vc, hit_l2, l1_evicted, vc_evicted;
-    block_t evicted_block_l1, evicted_block_vc;
+    bool hit_l1, hit_vc, hit_l2;
+    bool l1_evicted;
+    hit_l1 = hit_vc = hit_l2 = l1_evicted = false;
+    block_t evicted_block_l1, evicted_block_vc, evicted_block_l2;
 
     if (rw == READ)
         stats->reads++;
@@ -210,25 +265,23 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
         stats->read_hits_l2++;
     } else {
         stats->read_misses_l2++;
-        // Read-allocate the block into L2.
-        block_t dummy;
-        cache_insert(&l2, READ, addr, &dummy);
+        cache_insert(&l2, READ, addr, &evicted_block_l2);
         // Sum up the L2 miss penalty.
         stats->cumulative_l2_mp += get_miss_penalty(addr, l2.block_size, l2.enable_ER);
     }
 
     // ----- Step 4. Now fetch the block into L1 (from L2 or memory) -----
     l1_evicted = cache_insert(&l1, rw, addr, &evicted_block_l1);
-    // only dirty block will be inserted into victim cache
-    if (l1_evicted && evicted_block_l1.isDirty) {
+    // only dirty and valid block will be inserted into victim cache
+    if (l1_evicted && evicted_block_l1.isDirty && evicted_block_l1.isValid) {
         stats->write_backs_l1_or_victim_cache++;
-        vc_evicted = victim_cache_insert(&vc, evicted_block_l1, &evicted_block_vc);
-        // only dirty block will be inserted into L2 cache or victim or L2 cache is disabled 
-        if ((vc_evicted && evicted_block_vc.isDirty) || vc.num_block == 0 || l2.disabled) {
-            stats->writes_l2++;
-            // L2 cache is WTWNA
-        }
+        victim_cache_insert(&vc, evicted_block_l1.address, &evicted_block_vc);
+        stats->writes_l2++;
+        // L2 cache is WTWNA
     }
+
+    // For deug
+    count++;
 }
 
 void sim_finish(sim_stats_t *stats) {
