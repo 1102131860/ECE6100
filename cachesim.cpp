@@ -105,20 +105,33 @@ bool cache_insert(cache_t *ca, char rw, uint64_t address, block_t *evicted_block
     bool isEvicted = false;
     uint64_t index = get_index(address, ca->block_size, ca->num_set);
     if (ca->sets[index].size() >= ca->set_size) {
-        if (ca->repo != REPLACEMENT_POLICY_RANDOM) {    // MIP, LIP, FIFO
-            *evicted_block = ca->sets[index].front();
-            ca->sets[index].pop_front();                // LRU
-        } else {                                        // RANDOM
-            uint64_t evicted_index = (uint64_t)(evict_random() % (ca->sets[index].size() - 1));
-            auto evicted_block_it = ca->sets[index].begin() + evicted_index;
-            *evicted_block = *evicted_block_it;
-            ca->sets[index].erase(evicted_block_it);    // random position
+        // firstly need to pop out all the invalid blocks
+        bool all_valid = true;
+        for (auto it = ca->sets[index].begin(); it != ca->sets[index].end(); ++it) {
+            if (!it->isValid) {
+                *evicted_block = *it;
+                ca->sets[index].erase(it);
+                all_valid = false;
+                break;
+            }
         }
+
+        if (all_valid) {
+            if (ca->repo != REPLACEMENT_POLICY_RANDOM) {    // MIP, LIP, FIFO
+                *evicted_block = ca->sets[index].front();
+                ca->sets[index].pop_front();                // LRU
+            } else {                                        // RANDOM
+                uint64_t evicted_index = (uint64_t)(evict_random() % (ca->sets[index].size() - 1));
+                auto evicted_block_it = ca->sets[index].begin() + evicted_index;
+                *evicted_block = *evicted_block_it;
+                ca->sets[index].erase(evicted_block_it);    // random position
+            }    
+        }
+
         isEvicted = true;
 
         int valid_bit = evicted_block->isValid ? 1 : 0;
         int dirty_bit = evicted_block->isDirty ? 1 : 0;
-        uint64_t index = get_index(evicted_block->address, ca->block_size, ca->num_set);
         if (ca->wrst == WRITE_STRAT_WBWA)
             fprintf(file_ptr, "Evict from L1: block with valid=%d, dirty=%d, tag 0x%" PRIx64 " and index=0x%" PRIx64 "\n", 
                 valid_bit, dirty_bit, evicted_block->tag, index);
@@ -159,6 +172,9 @@ bool cache_access(cache_t *ca, char rw, uint64_t address) {
                 block_t hit_block = *it;
                 ca->sets[index].erase(it);
                 ca->sets[index].push_back(hit_block);   // update recent access
+
+                if (ca->repo == REPLACEMENT_POLICY_LIP)
+                    fprintf(file_ptr, "In L2, moving Tag: 0x%" PRIx64 " and Index: 0x%" PRIx64 " to MRU position\n", tag, index);
             }
             // FIFO and RANDOM do nothing
             return true;
@@ -287,7 +303,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
 
     // ----- Step 3. L1 and victim miss – access L2 (always a read first) -----
     stats->reads_l2++;
-    hit_l2 = cache_access(&l2, rw, addr);
+    hit_l2 = cache_access(&l2, READ, addr);
     if (hit_l2) {
         stats->read_hits_l2++;
     } else {
@@ -305,18 +321,20 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
         if ((vc_evicted && evicted_block_vc.isDirty && evicted_block_vc.isValid) 
             || (vc.num_block == 0 && evicted_block_l1.isDirty)) {
             
-            fprintf(file_ptr, "Writing back dirty block with address 0x%" PRIx64 " to L2\n", evicted_block_vc.address);
-            
             // write back from L1 or victim_cache
             stats->write_backs_l1_or_victim_cache++;
             // write through wirte no allication to L2
             stats->writes_l2++;
             
             // Write Access L2
-            if (vc.num_block == 0) 
+            if (vc.num_block == 0) {
+                fprintf(file_ptr, "Writing back dirty block with address 0x%" PRIx64 " to L2\n", evicted_block_l1.address);
                 cache_access(&l2, WRITE, evicted_block_l1.address);
-            else 
+            }
+            else {
+                fprintf(file_ptr, "Writing back dirty block with address 0x%" PRIx64 " to L2\n", evicted_block_vc.address);
                 cache_access(&l2, WRITE, evicted_block_vc.address);
+            }
         }
     }
 
