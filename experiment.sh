@@ -37,8 +37,11 @@ tuning() {
                                         config_name="c=$c1 B=$b s=$s1 v=$v C=$c2 S=$s2 P=$policy $er"
                                         echo "Tuning: $config_name..." >> "$log_file"
                                         echo "==========================================" >> "$output_file"
-                                        ./cachesim -c $c1 -b $b -s $s1 -v $v -C $c2 -S $s2 -P $policy $er < "traces/${trace}.trace" >> "$output_file"
-                                        echo "Completed: $config_name" >> "$log_file"
+                                        if ./cachesim -c $c1 -b $b -s $s1 -v $v -C $c2 -S $s2 -P $policy $er < "traces/${trace}.trace" >> "$output_file" 2>> "$log_file"; then
+                                            echo "Completed: $config_name" >> "$log_file"
+                                        else
+                                            echo "ERROR: cachesim failed for $config_name" >> "$log_file"
+                                        fi
                                     done
                                 done
                             done
