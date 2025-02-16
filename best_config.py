@@ -2,7 +2,8 @@ import os
 import re
 
 traces = ["gcc", "leela", "linpack", "matmul_naive", "matmul_tiled", "mcf"]
-dr = "/experiments"
+traces = ["gcc"]
+dr = "./experiments"
 L1_config_pattern = r"L1 \(C,B,S\): \((\d+),(\d+),(\d+)\). Replace policy: MIP"
 L2_config_pattern = r"L2 \(C,B,S\): \((\d+),(\d+),(\d+)\). Replace policy: (\w+). Early Restart: (\w+)"
 vc_config_pattern = r"Victim cache entries: (\d+)"
@@ -21,10 +22,10 @@ def tag_storage(config):
 
 
 def extract_from_files():
-    # file_paths = [os.path.join(dr, trace + ".out") for trace in traces]
-    file_paths = ["./test.txt"]
-
+    file_paths = [os.path.join(dr, trace + ".out") for trace in traces]
+    # file_paths = ["./test.txt"]
     dict_trace = {}
+
     for i, file_path in enumerate(file_paths):
         dict_trace[traces[i]] = []
         with open(file_path, "r", encoding="utf8") as input_file:
@@ -52,8 +53,14 @@ def extract_from_files():
 
 if __name__== "__main__":
     dict_trace = extract_from_files()
-    print(dict_trace)
+    # print(dict_trace)
 
     for trace, outputs in dict_trace.items():
         best_config = min(outputs, key=lambda x: (x[0] + x[1], x[2] + x[3] + x[4] + x[5]))
-        print(f"The best_config is when L1: {best_config[6]}, vc: {best_config[7]}, L2: {best_config[8]}")
+        print("="*80)
+        print(f"For trace {trace}:")
+        print(f"When L1: {best_config[6]}, vc: {best_config[7]}, L2: {best_config[8]}")
+        print(f"The lowest average access time: L1: {best_config[0]} ns, L2: {best_config[1]} ns")
+        print(f"While minimizing data storage: L1: {best_config[2]} bytes, L2:{best_config[4]} bytes")
+        print(f"While minimizing tag/meta storage: L1: {best_config[3]} bytes, L2:{best_config[5]} bytes")
+        
