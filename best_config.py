@@ -2,7 +2,7 @@ import os
 import re
 
 traces = ["gcc", "leela", "linpack", "matmul_naive", "matmul_tiled", "mcf"]
-traces = ["gcc"]
+# traces = ["gcc"]
 dr = "./experiments"
 L1_config_pattern = r"L1 \(C,B,S\): \((\d+),(\d+),(\d+)\). Replace policy: MIP"
 L2_config_pattern = r"L2 \(C,B,S\): \((\d+),(\d+),(\d+)\). Replace policy: (\w+). Early Restart: (\w+)"
