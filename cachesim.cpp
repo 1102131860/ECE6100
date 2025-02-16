@@ -1,7 +1,6 @@
 #include "cachesim.hpp"
 #include <vector>
 #include <deque>        // a double-linked list (FIFO)
-#include <cmath>        // log2 operation
 
 using namespace std;
 
@@ -24,7 +23,6 @@ typedef struct cache {
     bool enable_ER;
     replacement_policy_t repo;
     write_strat_t wrst;
-    uint64_t total_size;    // a total size of 1 << C (2^C) bytes, l2's is strictly larger than l1's total_size
     uint64_t block_size;    // block size of 1 << B (2^B) bytes, l2's equal to the l1's block_size
     uint64_t set_size;      // each set contains 1 << s (2^s) blocks, l2's should be larger than or equal to l1's
     uint64_t num_block;     // the number of blocks 1 << C - B (2^(C-B)) it can hold
@@ -37,18 +35,18 @@ static cache_t l1, l2;
 static victim_cache_t vc;
 
 uint64_t get_tag(uint64_t address, uint64_t block_size, uint64_t num_set) {
-    return address / (block_size * num_set);
+    return address >> (__builtin_ctz(block_size) + __builtin_ctz(num_set));
 }
 
 uint64_t get_index(uint64_t address, uint64_t block_size, uint64_t num_set) {
-    return (address / block_size) % num_set; 
+    return (address >> __builtin_ctz(block_size)) & (num_set - 1); 
 }
 
 uint64_t get_miss_penalty(uint64_t address, uint64_t block_size, bool enable_ER) {
-    uint64_t word_offset = block_size / WORD_SIZE; 
-    if (enable_ER) {                                        // Early Restart enabled: use the word offset.
-        uint64_t block_offset = address % block_size;       // byte offset within block
-        word_offset = block_offset / WORD_SIZE;             // which word (0-indexed)
+    uint64_t word_offset = block_size >> __builtin_ctz(WORD_SIZE);
+    if (enable_ER) {                                            // Early Restart enabled: use the word offset
+        uint64_t block_offset = address & (block_size - 1);     // byte offset within block
+        word_offset = block_offset >> __builtin_ctz(WORD_SIZE); // which word (0-indexed)
     }
     return DRAM_AT + (DRAM_AT_PER_WORD * word_offset);
 }
@@ -58,7 +56,6 @@ void cache_setup(cache_t *ca, cache_config_t config) {
     ca->enable_ER = config.enable_ER;
     ca->repo = config.replace_policy;
     ca->wrst = config.write_strat;
-    ca->total_size = 1ULL << config.c;                      // 2^C
     ca->block_size = 1ULL << config.b;                      // 2^B
     ca->set_size = 1ULL << config.s;                        // 2^S
     ca->num_block = 1ULL << (config.c - config.b);          // 2^(C - B)
@@ -273,10 +270,10 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
 }
 
 void sim_finish(sim_stats_t *stats) {
-    double s_l1 = log2(l1.set_size);
-    double HT_L1 = (!l1.disabled) ? (L1_HIT_TIME_CONST + (s_l1 * L1_HIT_TIME_PER_S)) : 0; // no searching and hit time
-    double s_l2 = log2(l2.set_size);
-    double HT_L2 = (!l2.disabled) ? (L2_HIT_TIME_CONST + (s_l2 * L2_HIT_TIME_PER_S)) : 0; // no searching and hit time
+    double s_l1 = __builtin_ctz(l1.set_size);                                               
+    double HT_L1 = L1_HIT_TIME_CONST + (s_l1 * L1_HIT_TIME_PER_S);
+    double s_l2 = __builtin_ctz(l2.set_size);                                               // log2
+    double HT_L2 = (!l2.disabled) ? (L2_HIT_TIME_CONST + (s_l2 * L2_HIT_TIME_PER_S)) : 0;   // no searching and hit time
 
     // Compute ratios.
     stats->hit_ratio_l1 = (double)stats->hits_l1 / stats->accesses_l1;
