@@ -106,7 +106,8 @@ bool cache_insert(cache_t *ca, char rw, uint64_t address, block_t *evicted_block
                 *evicted_block = ca->sets[index].front();
                 ca->sets[index].pop_front();                // LRU
             } else {                                        // RANDOM
-                uint64_t evicted_index = (uint64_t)(evict_random() % (ca->sets[index].size() - 1));
+                uint64_t mod = ca->sets[index].size() > 1 ? ca->sets[index].size() - 1 : 1;
+                uint64_t evicted_index = (uint64_t)(evict_random() % mod);
                 auto evicted_block_it = ca->sets[index].begin() + evicted_index;
                 *evicted_block = *evicted_block_it;
                 ca->sets[index].erase(evicted_block_it);    // random position
