@@ -34,6 +34,9 @@ The goal of this project is to build a cache simulator and verify it is correct 
     - output
         - best_config.output
 
+    - log
+        - experiments.log
+
 - folder
 
     - experiments/
