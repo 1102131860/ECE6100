@@ -1,0 +1,208 @@
+
+Average Total AAT and Storage for each Trace, set associativity and block size:
+ s  b  total_AAT    total_size
+ 0  5  48.777425 150192.640000
+ 0  6  43.758494 137220.173913
+ 0  7  37.768462 130856.380952
+ 1  5  60.778989 150621.217391
+ 1  6  55.561776 137515.428571
+ 1  7  50.858638 131101.894737
+ 2  5  64.669667 151076.571429
+ 2  6  60.878961 137842.526316
+ 2  7  54.935860 131388.235294
+ 3  5  66.521107 151567.157895
+ 3  6  63.542020 138212.705882
+ 3  7  59.888237 131731.733333
+ 4  5  67.577068 152105.411765
+ 4  6  64.855781 138643.200000
+ 4  7  60.895149 132158.769231
+ 5  5  69.733004 152710.400000
+ 5  6  67.340178 139161.846154
+ 5  7  62.355458 132714.909091
+ 6  5  71.058879 153412.923077
+ 6  6  69.210411 139816.727273
+ 6  7  64.625285 133486.222222
+ 7  5  71.005460 154266.181818
+ 7  6  68.789314 140698.666667
+ 7  7  64.602401 134657.142857
+ 8  5  72.659256 155370.666667
+ 8  6  70.632602 142002.285714
+ 8  7  78.715410 145363.200000
+ 9  5  73.131158 156941.714286
+ 9  6  78.190435 153369.600000
+10  5  79.605119 169651.200000
+
+Average Total AAT and Storage for each Trace, set associativity and block size:
+ S  b  total_AAT    total_size
+ 0  5  46.289424 146368.000000
+ 0  6  42.788438 134624.000000
+ 0  7  38.680854 128752.000000
+ 1  5  51.132256 146800.000000
+ 1  6  47.278288 134840.000000
+ 1  7  42.623191 128860.000000
+ 2  5  53.498365 147232.000000
+ 2  6  49.661479 135056.000000
+ 2  7  44.555430 128968.000000
+ 3  5  56.257368 147664.000000
+ 3  6  52.685885 135272.000000
+ 3  7  48.086176 129076.000000
+ 4  5  58.760452 148096.000000
+ 4  6  55.370696 135488.000000
+ 4  7  50.981939 129184.000000
+ 5  5  61.435000 148528.000000
+ 5  6  58.224481 135704.000000
+ 5  7  53.943224 129292.000000
+ 6  5  63.997734 148960.000000
+ 6  6  61.258842 135920.000000
+ 6  7  57.346932 129400.000000
+ 7  5  65.871479 149392.000000
+ 7  6  63.774907 136136.000000
+ 7  7  60.327417 129508.000000
+ 8  5  66.090211 149824.000000
+ 8  6  62.901218 136352.000000
+ 8  7  58.038626 130119.529412
+ 9  5  67.509442 150256.000000
+ 9  6  64.499445 137037.473684
+ 9  7  58.832619 130215.529412
+10  5  68.897596 151146.666667
+10  6  65.275582 137229.473684
+10  7  57.405113 164903.529412
+11  5  69.760348 151530.666667
+11  6  63.812894 173901.473684
+12  5  67.551277 192234.666667
+Average Total AAT
+
+Average Total AAT for each Trace and Victim Cache Entry:
+       Trace  v  total_AAT
+         gcc  0  42.412272
+         gcc  1  42.678746
+         gcc  2  44.519371
+       leela  0  52.994496
+       leela  1  54.077202
+       leela  2  59.745658
+     linpack  0  95.821815
+     linpack  1  96.028747
+     linpack  2  96.000412
+matmul_naive  0  33.524348
+matmul_naive  1  33.488528
+matmul_naive  2  34.421589
+matmul_tiled  0  62.463203
+matmul_tiled  1  65.528668
+matmul_tiled  2  69.099206
+         mcf  0  72.529234
+         mcf  1  73.826685
+         mcf  2  75.936375
+Average Total AAT
+
+Average Total AAT for each Trace and Replacement Policy:
+       Trace      P  total_AAT
+         gcc   FIFO  44.115427
+         gcc    LIP  42.480021
+         gcc    MIP  41.918893
+         gcc RANDOM  43.765689
+       leela   FIFO  55.185931
+       leela    LIP  55.185931
+       leela    MIP  55.185931
+       leela RANDOM  55.185931
+     linpack   FIFO  96.409754
+     linpack    LIP  95.342059
+     linpack    MIP  95.701604
+     linpack RANDOM  96.327564
+matmul_naive   FIFO  39.581222
+matmul_naive    LIP  25.380097
+matmul_naive    MIP  43.418267
+matmul_naive RANDOM  26.618868
+matmul_tiled   FIFO  65.703360
+matmul_tiled    LIP  65.578445
+matmul_tiled    MIP  65.275863
+matmul_tiled RANDOM  64.850276
+         mcf   FIFO  73.714969
+         mcf    LIP  74.459199
+         mcf    MIP  73.674225
+         mcf RANDOM  73.795329
+Average Total AAT
+
+Average Total AAT for each Trace and Early Restart:
+       Trace     E  total_AAT
+         gcc False  44.639262
+         gcc  True  41.500753
+       leela False  57.243762
+       leela  True  53.128100
+     linpack False 102.436164
+     linpack  True  89.454326
+matmul_naive False  34.768735
+matmul_naive  True  32.730493
+matmul_tiled False  69.558625
+matmul_tiled  True  61.145347
+         mcf False  77.863526
+         mcf  True  69.958335
+Best configurations:
+==================================================
+Trace: gcc
+Total AAT: 18.020 ns
+Total Size: 154688 bytes
+
+Cache Parameters:
+L1 - c: 14, b: 7, s: 0
+L2 - C: 17, S: 2
+Victim Cache Entries: 0
+Replace Policy: MIP
+Early Restart: Enabled
+==================================================
+Trace: leela
+Total AAT: 13.714 ns
+Total Size: 85888 bytes
+
+Cache Parameters:
+L1 - c: 14, b: 7, s: 0
+L2 - C: 16, S: 0
+Victim Cache Entries: 0
+Replace Policy: MIP
+Early Restart: Enabled
+==================================================
+Trace: linpack
+Total AAT: 57.455 ns
+Total Size: 154560 bytes
+
+Cache Parameters:
+L1 - c: 14, b: 7, s: 0
+L2 - C: 17, S: 1
+Victim Cache Entries: 0
+Replace Policy: MIP
+Early Restart: Enabled
+==================================================
+Trace: matmul_naive
+Total AAT: 13.830 ns
+Total Size: 171616 bytes
+
+Cache Parameters:
+L1 - c: 15, b: 7, s: 0
+L2 - C: 17, S: 0
+Victim Cache Entries: 1
+Replace Policy: MIP
+Early Restart: Enabled
+==================================================
+Trace: matmul_tiled
+Total AAT: 16.377 ns
+Total Size: 154560 bytes
+
+Cache Parameters:
+L1 - c: 14, b: 7, s: 0
+L2 - C: 17, S: 1
+Victim Cache Entries: 0
+Replace Policy: MIP
+Early Restart: Enabled
+==================================================
+Trace: mcf
+Total AAT: 17.783 ns
+Total Size: 154560 bytes
+
+Cache Parameters:
+L1 - c: 14, b: 7, s: 0
+L2 - C: 17, S: 1
+Victim Cache Entries: 0
+Replace Policy: MIP
+Early Restart: Enabled
+
+Save extracted data to fexperiments.csv
+Save best configurations to fbest_config.csv
