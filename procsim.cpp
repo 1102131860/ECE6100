@@ -421,6 +421,10 @@ static void stage_exec(procsim_stats_t *stats) {
 // they complete (at which point stage_exec() above should free their RS).
 static void stage_schedule(procsim_stats_t *stats) {
     // TODO: fill me in
+
+    // use a copy vector for sort dyncount
+    // then iterate in that sorted vector, will it make sense?
+
     bool enable_fire_store = true;
     for (auto rs = ScheQ.begin(); rs != ScheQ.end(); ++rs) {
         // RS has fired
