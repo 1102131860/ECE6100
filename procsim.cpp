@@ -28,7 +28,7 @@ typedef struct {
     size_t src1Preg;
     size_t src2Preg;
 
-    size_t fu_no;                   // refer to FUs[fu_no]
+    size_t fu_no;                   // refer to FUSB[fu_no]
     size_t fire_stage;              // 0: hasn't fire; 1: fire; 2: 1-stage complete; 3: 2-stage complete; 4: 3-stage completes ...
     opcode_t opcode;                // judge LOAD or STORE
     cache_lentency_t dcache_hit;    // determine the stall cycles of LSU
@@ -71,18 +71,18 @@ static vector<size_t> RAT;
 static size_t RF_size;
 static vector<reg_t> RF;
 
-// SchedulingQueue
+// Scheduling Queue
 // resize: -p : (s x (a + m + l))
 static size_t dispatch_width;
 static size_t ScheQ_capacity;
 static deque<RS_t> ScheQ;
 
-// FUs
+// FU Scoreboard
 // resize -a, -m, -l, first a is ALU, second m is MUL and third l is LSU
 static size_t alu_mul_divide_index;
 static size_t mul_lsu_divide_index;
 static size_t unified_size;
-static vector<bool> FUs;
+static vector<bool> FUSB;
 
 // Result Buses
 // size is same with FU's unified_size
@@ -115,7 +115,7 @@ size_t free_Preg_available() {
 
 // Check free FU is available
 // If avaiable, return first free FU's index
-// else return the size of FUs (unified_size)
+// else return the size of FUSB (unified_size)
 size_t free_FU_available(FU_t fu) {
     size_t start_index = 0;
     size_t end_index = 0;
@@ -132,7 +132,7 @@ size_t free_FU_available(FU_t fu) {
     }
 
     for (size_t i = start_index; i < end_index; i++) {
-        if (FUs[i]) {
+        if (FUSB[i]) {
             return i;
         }
     }
@@ -306,9 +306,9 @@ static void stage_exec(procsim_stats_t *stats) {
 
         // pipeline advances and now first stage is free
         rs->fire_stage++;
-        // after 1 cycle, all piplined FUs (only MUL_FU) can be free
+        // after 1 cycle, all piplined FU (only MUL_FU) can be free
         if (rs->fu == MUL_FU) {
-            FUs[rs->fu_no] = true;
+            FUSB[rs->fu_no] = true;
         }
 
         // check compeletion
@@ -344,7 +344,7 @@ static void stage_exec(procsim_stats_t *stats) {
         // at completion of instruction I
         // the non-piplined FU now can free
         if (rs->fu != MUL_FU) {
-            FUs[rs->fu_no] = true;
+            FUSB[rs->fu_no] = true;
         }
 
         // only when destPreg is valid, then update CDB and RF
@@ -473,7 +473,7 @@ static void stage_schedule(procsim_stats_t *stats) {
         // assign the sepcific FU
         rs->fu_no = fu_index;
         // set the fu as not free
-        FUs[fu_index] = false;
+        FUSB[fu_index] = false;
         // set no_fire to false
         no_fire = false;
     }
@@ -690,7 +690,7 @@ void procsim_init(const procsim_conf_t *sim_conf, procsim_stats_t *stats) {
     mul_lsu_divide_index = alu_mul_divide_index + sim_conf->num_mul_fus;
     unified_size = mul_lsu_divide_index + sim_conf->num_lsu_fus;
     // All function units are ready
-    FUs.assign(unified_size, true);
+    FUSB.assign(unified_size, true);
 
     // 4. CDB
     // iniatially pointing to PReg0
