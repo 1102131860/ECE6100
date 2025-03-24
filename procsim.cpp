@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <vector>
 #include <deque>
-#include <algorithm>
 
 using namespace std;
 
@@ -94,20 +93,17 @@ static vector<size_t> CDB;
 static size_t ROBQ_capacity;
 static deque<ROB_t> ROBQ;
 
-// Helper functions
+// Sum of DispQ, ScheQ, ROBQ and number of retured instructions for each cycles
+static uint64_t dispq_size_sum = 0;
+static uint64_t scheq_size_sum = 0;
+static uint64_t robq_size_sum = 0;
+static uint64_t retire_inst_sum = 0;
 
-// Construct a NOP instruction struct
-// Register 0 cannot be a real destination
-// set Reg0 as dest to indicate that is a NOP
-inst_t NOP_inst() {
-    inst_t inst;
-    inst.dest = 0;
-    return inst;
-}
+// Helper functions
 
 // Check free Preg is avaiable
 // If available, return first free Preg's index
-// else return the size of RF
+// else return the size of RF (RF_size)
 size_t free_Preg_available() {
     for (size_t i = RAT_size; i < RF_size; i++) {
         if (RF[i].free) {
@@ -117,17 +113,7 @@ size_t free_Preg_available() {
     return RF_size;
 }
 
-// Assign instruction to fu from opcode
-FU_t assign_to_fu(opcode_t opcode) {
-    if (opcode == OPCODE_ADD || opcode == OPCODE_BRANCH) {
-        return ALU_FU;
-    } else if (opcode == OPCODE_MUL) {
-        return MUL_FU;
-    } else { // OPCODE_STORE, OPCODE_LOAD
-        return LSU_FU;
-    }
-}
-
+// Check free FU is available
 // If avaiable, return first free FU's index
 // else return the size of FUs (unified_size)
 size_t free_FU_available(FU_t fu) {
@@ -150,7 +136,6 @@ size_t free_FU_available(FU_t fu) {
             return i;
         }
     }
-
     return unified_size;
 }
 
@@ -187,14 +172,14 @@ static void print_instruction(const inst_t *inst) {
 // This will print the state of the ROB where instructions are identified by their dyn_instruction_count
 static void print_rob(void) {
     size_t printed_idx = 0;
-    printf("\tAllocated Entries in ROB: %lu\n", 0ul); // TODO: Fix Me
-    for (/* ??? */; /* ??? */ false; /* ??? */) { // TODO: Fix Me
+    printf("\tAllocated Entries in ROB: %lu\n", ROBQ.size()); // TODO: Fix Me
+    for (auto rob = ROBQ.begin(); rob != ROBQ.end(); ++rob) { // TODO: Fix Me
         if (printed_idx == 0) {
-            printf("    { dyncount=%05" PRIu64 ", completed: %d, mispredict: %d }", 0ul, 0, 0); // TODO: Fix Me
+            printf("    { dyncount=%05" PRIu64 ", completed: %d, mispredict: %d }", rob->dyn_instruction_count, rob->ready, rob->mispredict); // TODO: Fix Me
         } else if (!(printed_idx & 0x3)) {
-            printf("\n    { dyncount=%05" PRIu64 ", completed: %d, mispredict: %d }", 0ul, 0, 0); // TODO: Fix Me
+            printf("\n    { dyncount=%05" PRIu64 ", completed: %d, mispredict: %d }", rob->dyn_instruction_count, rob->ready, rob->mispredict); // TODO: Fix Me
         } else {
-            printf(", { dyncount=%05" PRIu64 " completed: %d, mispredict: %d }", 0ul, 0, 0); // TODO: Fix Me
+            printf(", { dyncount=%05" PRIu64 " completed: %d, mispredict: %d }", rob->dyn_instruction_count, rob->ready, rob->mispredict); // TODO: Fix Me
         }
         printed_idx++;
     }
@@ -208,11 +193,11 @@ static void print_rob(void) {
 static void print_rat(void) {
     for (uint64_t regno = 0; regno < NUM_REGS; regno++) {
         if (regno == 0) {
-            printf("    { R%02" PRIu64 ": P%03" PRIu64 " }", regno, 0ul); // TODO: fix me
+            printf("    { R%02" PRIu64 ": P%03" PRIu64 " }", regno, RAT[regno]); // TODO: fix me
         } else if (!(regno & 0x3)) {
-            printf("\n    { R%02" PRIu64 ": P%03" PRIu64 " }", regno, 0ul); //  TODO: fix me
+            printf("\n    { R%02" PRIu64 ": P%03" PRIu64 " }", regno, RAT[regno]); //  TODO: fix me
         } else {
-            printf(", { R%02" PRIu64 ": P%03" PRIu64 " }", regno, 0ul); //  TODO: fix me
+            printf(", { R%02" PRIu64 ": P%03" PRIu64 " }", regno, RAT[regno]); //  TODO: fix me
         }
     }
     printf("\n"); //  PROVIDED
@@ -221,13 +206,13 @@ static void print_rat(void) {
 // This will print out the state of the register file, where P0-P31 are architectural registers 
 // and P32 is the first PREG 
 static void print_prf(void) {
-    for (uint64_t regno = 0; /* ??? */ false; regno++) { // TODO: fix me
+    for (uint64_t regno = 0; regno < RF_size; regno++) { // TODO: fix me
         if (regno == 0) {
-            printf("    { P%03" PRIu64 ": Ready: %d, Free: %d }", regno, 0, 0); // TODO: fix me
+            printf("    { P%03" PRIu64 ": Ready: %d, Free: %d }", regno, RF[regno].ready, RF[regno].free); // TODO: fix me
         } else if (!(regno & 0x3)) {
-            printf("\n    { P%03" PRIu64 ": Ready: %d, Free: %d }", regno, 0, 0); // TODO: fix me
+            printf("\n    { P%03" PRIu64 ": Ready: %d, Free: %d }", regno, RF[regno].ready, RF[regno].free); // TODO: fix me
         } else {
-            printf(", { P%03" PRIu64 ": Ready: %d, Free: %d }", regno, 0, 0); // TODO: fix me
+            printf(", { P%03" PRIu64 ": Ready: %d, Free: %d }", regno, RF[regno].ready, RF[regno].free); // TODO: fix me
         }
     }
     printf("\n"); //  PROVIDED
@@ -246,70 +231,57 @@ static void print_prf(void) {
 static uint64_t stage_state_update(procsim_stats_t *stats,
                                    bool *retired_mispredict_out) {
     // TODO: fill me in
+    uint64_t retirement_count = 0;
+    // Because earse happens, cannot directly ++rob
+    for (auto rob = ROBQ.begin(); rob != ROBQ.end(); /*++rob*/) {
+        // ROB hasn't complete, skip
+        if (!rob->ready) {
+            ++rob;
+            continue;
+        }
 
-    // according to the sorted indices to process ROBQ without changing original ROBQ's order
-    vector<size_t> indices(ROBQ.size());
-    // generate indices from 0 to size - 1
-    for (size_t i = 0; i < ROBQ.size(); i++) {
-        indices[i] = i;
-    }
-    // sort dq[index].count in ascending order
-    std::sort(indices.begin(), indices.end(), [&](size_t a, size_t b) {
-        return ROBQ[a].dyn_instruction_count < ROBQ[b].dyn_instruction_count;
-    });
-
-    size_t retirement_count = 0;
-    for (size_t i : indices) {
-        auto rob = ROBQ.begin() + i;
         // rob is ready/retire (complete execution)
-        if (rob->ready) {
-            retirement_count++;
+        retirement_count++;
+        // increment instructions_retired
+        stats->instructions_retired++;
 
-            // No mispredict occurs
-            if (rob->opcode != OPCODE_BRANCH || !rob->mispredict) {
-                // retring an instruction will commit their dest reg to the ARegs
-                // since we aren't modeling data, don't need actually model this behavior
-                // when the prev preg is a Preg (not a Areg)
-                if (rob->prevPreg >= RAT_size) {
-                    RF[rob->prevPreg].free = true;
-                }
-
-                // delete the rob from ROBQ
-                ROBQ.erase(rob);
-            } // mispredict occurs
-            else {
-                // call procsim_driver_update_predictor function to update branch predictor
-                procsim_driver_update_predictor(rob->pc, !rob->br_taken, rob->dyn_instruction_count);
-                // set retired_mispredict_out to true
-                *retired_mispredict_out = true;
-
-                // delete the rob from ROBQ
-                ROBQ.erase(rob);
-
-                // reset the register files and RAT to initial values
-                // RAT is initialized to point to the architectural registers
-                size_t it;
-                for (it = 0; it < RAT_size; it++) {
-                    RAT[it] = i;
-                }
-                // reset RF
-                // All architecture registers are ready but not free (never free)
-                for (it = 0; it < RAT_size; it++) {
-                    RF[it].ready = true;
-                    RF[it].free = false;
-                }
-                // All phyiscal registers are free but bot ready
-                for (it = RAT_size; it < RF_size; it++) {
-                    RF[it].ready = false;
-                    RF[it].free = true;
-                }
-
-                // stop retiring any more instructions
-                break;
+        // No mispredict occurs
+        if (rob->opcode != OPCODE_BRANCH || !rob->mispredict) {
+            // retring an instruction will commit their dest reg to the ARegs
+            // since we aren't modeling data, don't need actually model this behavior
+            // when the prev preg is a Preg (not a Areg), free it
+            if (rob->prevPreg >= RAT_size) {
+                RF[rob->prevPreg].free = true;
             }
+
+            // delete the rob from ROBQ
+            ROBQ.erase(rob);
+        } // mispredict occurs
+        else {
+            // call procsim_driver_update_predictor function to update branch predictor
+            procsim_driver_update_predictor(rob->pc, !rob->br_taken, rob->dyn_instruction_count);
+            // set retired_mispredict_out to true
+            *retired_mispredict_out = true;
+            // reset the register files and RAT to initial values
+            // RAT is initialized to point to the architectural registers
+            // All architecture registers are ready but not free (never free)
+            for (size_t i = 0; i < RAT_size; i++) {
+                RAT[i] = i;
+                RF[i].ready = true;
+                RF[i].free = false;
+            }
+            // All phyiscal registers are free but bot ready
+            for (size_t i = RAT_size; i < RF_size; i++) {
+                RF[i].ready = false;
+                RF[i].free = true;
+            }
+
+            // delete the rob from ROBQ
+            ROBQ.erase(rob);
+            // stop retiring any more instructions
+            break;
         }
     }
-
 
 #ifdef DEBUG
     printf("Stage State Update: \n"); //  PROVIDED
@@ -324,21 +296,22 @@ static uint64_t stage_state_update(procsim_stats_t *stats,
 // should remove an instruction from the scheduling queue when it has completed.
 static void stage_exec(procsim_stats_t *stats) {
     // TODO: fill me in
-    for (auto rs = ScheQ.begin(); rs != ScheQ.end(); ++rs) {
-        // RS hasn't been fired
+    // Because earse happens, cannot directly ++rs
+    for (auto rs = ScheQ.begin(); rs != ScheQ.end(); /*++rs*/) {
+        // RS hasn't been fired, don't execute RS
         if (rs->fire_stage == 0) {
-            // don't exec RS
+            ++rs;
             continue;
         }
 
         // pipeline advances and now first stage is free
         rs->fire_stage++;
-        // After 1 cycle, all piplined FUs (MUL_FU) can be free
+        // after 1 cycle, all piplined FUs (only MUL_FU) can be free
         if (rs->fu == MUL_FU) {
             FUs[rs->fu_no] = true;
         }
 
-        // Check Compeletion or not
+        // check compeletion
         // the initial fire_stage starts from 1, so the true complete stage needs to add 1
         size_t complete_stage = 2;
         // ALU
@@ -361,28 +334,36 @@ static void stage_exec(procsim_stats_t *stats) {
             complete_stage = L2_MISS_CYCLES + 1;
         }
 
-        // at completion of instruction I
-        if (rs->fire_stage == complete_stage) {
-            // broadcast the instruction results
-            // CDB and FUs are one-to-one corresponding and share the same index
-            CDB[rs->fu_no] = rs->destPreg;
-            // mark dest preg as ready
-            RF[rs->destPreg].ready = true;
-            // but dest preg hasn't been free
-            // the ROB entries correpsonding to these instructions are also marked as ready
-            for (auto rob = ROBQ.begin(); rob != ROBQ.end(); ++rob) {
-                if (rob->dyn_instruction_count == rs->dyn_instruction_count) {
-                    rob->ready = true;
-                }
-            }
-
-            // the non-piplined FU now can free
-            if (rs->fu != MUL_FU) {
-                FUs[rs->fu_no] = true;
-            }
-            // delete the completed instruction I
-            ScheQ.erase(rs);
+        // not complete
+        if (rs->fire_stage < complete_stage) {
+            // move iterator to next
+            ++rs;
+            continue;
         }
+
+        // at completion of instruction I
+        // the non-piplined FU now can free
+        if (rs->fu != MUL_FU) {
+            FUs[rs->fu_no] = true;
+        }
+
+        // only when destPreg is valid, then update CDB and RF
+        if (rs->destPreg != RF_size) {
+            // broadcast the results
+            CDB[rs->fu_no] = rs->destPreg;
+            // mark dest preg as ready (but not free)
+            RF[rs->destPreg].ready = true;
+        }
+
+        // the ROB entries correpsonding to these instructions are also marked as ready
+        for (auto rob = ROBQ.begin(); rob != ROBQ.end(); ++rob) {
+            if (rob->dyn_instruction_count == rs->dyn_instruction_count) {
+                rob->ready = true;
+            }
+        }
+
+        // delete the completed instruction I
+        ScheQ.erase(rs);
     }
 
 #ifdef DEBUG
@@ -425,30 +406,27 @@ static void stage_schedule(procsim_stats_t *stats) {
     // use a copy vector for sort dyncount
     // then iterate in that sorted vector, will it make sense?
 
+    bool no_fire = true;
     bool enable_fire_store = true;
     for (auto rs = ScheQ.begin(); rs != ScheQ.end(); ++rs) {
-        // RS has fired
+        // RS has fired, don't fire RS again
         if (rs->fire_stage != 0) {
-            // don't fire RS again
             continue;
         }
 
-        // one of source pregs doesn't wake up
+        // one of source pregs doesn't wake up, don't fire RS
         if ((rs->src1Preg != RF_size && !RF[rs->src1Preg].ready) || // src1Preg doesn't wakeup
             (rs->src2Preg != RF_size && !RF[rs->src2Preg].ready)) { // src2Preg doesn't wakeup
-            // don't fire RS
             continue;
         }
 
         // two source pregs both wake up now
         size_t fu_index = free_FU_available(rs->fu);
-        // no free FU unit
+        // no free FU unit, don't fire RS
         if (fu_index == unified_size) {
-            // don't fire RS
             continue;
         }
 
-        auto fire_rs = rs;
         // free FU are now avilable for alu, mul, and lsu
         if (rs->fu == LSU_FU) {
             // check Memory Dismbiguation
@@ -468,7 +446,7 @@ static void stage_schedule(procsim_stats_t *stats) {
                 if (enable_fire_store) {
                     // check whether there is a preceding load or store (FU = lsu) before this store
                     for (auto it = ScheQ.begin(); it != ScheQ.end(); ++it) {
-                        // a Store instruction can never be fired before ALL Load and Store instructions that precede it in program order complete.
+                        // a Store instruction can never be fired before ALL Load and Store instructions that precede it in program order complete
                         if (it->dyn_instruction_count < rs->dyn_instruction_count && it->fu == LSU_FU) {
                             violate_mem_disam = true;
                             break;
@@ -487,27 +465,22 @@ static void stage_schedule(procsim_stats_t *stats) {
                 // don't fire RS
                 continue;
             }
-        } // rs->fu == ALU_FU || rs->fu == MUL_FU
-        else {
-            // if multiple instructions can be fired at the same time, they are fired in program order
-            // use dyn_instruction_count as a mechanism to determine program order
-            auto preceding_rs = rs;
-            for (auto it = ScheQ.begin(); it != ScheQ.end(); ++it) {
-                // find the first instruction which is preceding to this instruction with the same FU
-                if (it->dyn_instruction_count < preceding_rs->dyn_instruction_count && it->fu == rs->fu) {
-                    preceding_rs = it;
-                }
-            }
-            fire_rs = preceding_rs;
         }
 
         // now all srcPregs wakeup, FU avilable and all Load/Store obey Memory disambiguation, reserve the FU
-        // fire this RS
-        fire_rs->fire_stage = 1;
+        // fire this RS, set stage to 1
+        rs->fire_stage = 1;
         // assign the sepcific FU
-        fire_rs->fu_no = fu_index;
+        rs->fu_no = fu_index;
         // set the fu as not free
         FUs[fu_index] = false;
+        // set no_fire to false
+        no_fire = false;
+    }
+
+    // increment no_fire_cycles
+    if (no_fire) {
+        stats->no_fire_cycles++;
     }
 
 #ifdef DEBUG
@@ -529,24 +502,19 @@ static void stage_dispatch(procsim_stats_t *stats) {
     size_t NOP_count = 0;
     size_t Not_NOP_count = 0;
     while (true) {
-        // nothing in the DispQ, stall
-        // ScheQ is full, stall
-        // no room for in the ROBQ, stall
-        // no available free Preg, stall
-        // already dispatched dispatch_width NOPs, stall
-        // already dispacthed dispacth_width are not NOPs, stall
-        size_t preg_index = free_Preg_available();
-        if (DispQ.empty() || ScheQ.size() >= ScheQ_capacity || ROBQ.size() >= ROBQ_capacity ||
-            preg_index == RF_size || NOP_count >= dispatch_width || Not_NOP_count >= dispatch_width) {
-            // stall
+        // 1. nothing in the DispQ, stall
+        if (DispQ.empty()) {
             break;
         }
-
         // fill ScheQ with instructions from the head of DispQ
         inst_t I = DispQ.front();
         // Instruction I now is "dispatched"
         DispQ.pop_front();
 
+        // 2. already dispatched dispatch_width NOPs, stall
+        if (NOP_count >= dispatch_width) {
+            break;
+        }
         // I is a NOP
         if (I.dest == (int8_t)0) {
             NOP_count++;
@@ -554,56 +522,89 @@ static void stage_dispatch(procsim_stats_t *stats) {
             continue;
         }
 
+        // 3. already dispacthed dispacth_width are not NOPs, stall
+        if (Not_NOP_count >= dispatch_width) {
+            break;
+        }
         // I is not a NOP
         Not_NOP_count++;
 
         RS_t rs;
         // set a reservation station's function unit specifier
-        rs.fu = assign_to_fu(I.opcode);
+        if (I.opcode == OPCODE_ADD || I.opcode == OPCODE_BRANCH) {
+            rs.fu = ALU_FU;
+        } else if (I.opcode == OPCODE_MUL) {
+            rs.fu = MUL_FU;
+        } else { // OPCODE_STORE, OPCODE_LOAD
+            rs.fu = LSU_FU;
+        }
         // rs hasn't allocate to a specific FU, use unified_size to indicate invalid
         rs.fu_no = unified_size;
         // rs hasn't been fired in the dispatch stage
         rs.fire_stage = 0;
-        // record opcode to judge LOAD/STORE
-        rs.opcode = I.opcode;
-        // record dcache_hit to determine stall cycles
-        rs.dcache_hit = I.dcache_hit;
-        // record the dyn_instruction_count to compare program order
-        rs.dyn_instruction_count = I.dyn_instruction_count;
         // set source pregs using the RAT
         rs.src1Preg = (I.src1 == (int8_t)-1) ? RF_size : RAT[I.src1];
         rs.src2Preg = (I.src2 == (int8_t)-1) ? RF_size : RAT[I.src2];
+        // record opcode, dcache_hit, and dyn_instruction_count
+        rs.opcode = I.opcode;
+        rs.dcache_hit = I.dcache_hit;
+        rs.dyn_instruction_count = I.dyn_instruction_count;
 
-        // an instruction has a dest, search a free_Preg
+        ROB_t rob;
+        // set the ROB's ready to false
+        rob.ready = false;
+        // record the ROB's pc, br_taken, opcode, mispredict and dyn_instruction_count
+        rob.pc = I.pc;
+        rob.opcode = I.opcode;
+        rob.mispredict = I.mispredict;
+        rob.br_taken = I.br_taken;
+        rob.dyn_instruction_count = I.dyn_instruction_count;
+
+        // an instruction has a dest
         if (I.dest != (int8_t)-1) {
-            ROB_t rob;
             // set the ROB prev preg, dest preg
             rob.destAreg = I.dest;
             rob.prevPreg = RAT[I.dest];
-            // set the ROB's ready
-            rob.ready = false;
-            // record the ROB's pc, br_taken, opcode, mispredict and dyn_instruction_count
-            rob.pc = I.pc;
-            rob.opcode = I.opcode;
-            rob.mispredict = I.mispredict;
-            rob.br_taken = I.br_taken;
-            rob.dyn_instruction_count = I.dyn_instruction_count;
-            // add to the tail of ROBQ
-            ROBQ.push_back(rob);
+
+            // search a free Preg
+            size_t preg_index = free_Preg_available();
+            // 4. No free Preg for a destination, stall
+            if (preg_index == RF_size) {
+                // increment No_dispatch_cycles_pregs
+                stats->no_dispatch_pregs_cycles++;
+                break;
+            }
 
             // set the rs dest to the found free preg
             rs.destPreg = preg_index;
             // mark the RF[preg_index] as not ready and not free
             RF[preg_index].ready = false;
             RF[preg_index].free = false;
-            // update RAT
+            // update RAT, after 'rob.prevPreg = RAT[I.dest]'
             RAT[I.dest] = preg_index;
         } // an instruction hasn't a dest
         else {
+            // set the ROB prev preg, dest preg as invalid indices
+            rob.destAreg = RAT_size;
+            rob.prevPreg = RF_size;
             // set destPreg as an invalid index
             rs.destPreg = RF_size;
+            // no need to set RF and RAT
         }
 
+        // 5. ROBQ is full, stall
+        if (ROBQ.size() >= ROBQ_capacity) {
+            // increment No_dispatch_cycles_rob
+            stats->rob_no_dispatch_cycles++;
+            break;
+        }
+        // add to the tail of ROBQ
+        ROBQ.push_back(rob);
+
+        // 6. ScheQ is full, stall
+        if (ScheQ.size() >= ScheQ_capacity) {
+            break;
+        }
         // add to the tail of ScheQ
         ScheQ.push_back(rs);
     }
@@ -630,18 +631,24 @@ static void stage_fetch(procsim_stats_t *stats) {
         case DRIVER_READ_OK:
             // push inst into DispQ
             DispQ.push_back(*inst);
+            stats->instructions_fetched++;
             break;
         case DRIVER_READ_ICACHE_MISS:
             // push NOP into DispQ
-            DispQ.push_back(NOP_inst());
+            // Reg0 cannot be a real destination, so set dest as Reg0 to indicate a NOP
+            DispQ.push_back(inst_t{});
+            DispQ.back().dest = 0;
+            // else do not increment fetched instructions for NOPs
+            break;
+        case DRIVER_READ_MISPRED:
+            // don't push NOPs into the dispatch queue
+            // should make i-- to maintain the fetch_width?
+            // increment instructions_fetched due to a branch misprediction
+            stats->instructions_fetched++;
             break;
         case DRIVER_READ_END_OF_TRACE:
             // finish fetching
             end_of_trace = true;
-            break;
-        case DRIVER_READ_MISPRED:
-            // don't push NOPs into the dispatch queue
-            // should make i--to maintain the fetch_width?
             break;
         default:
             // do nothing
@@ -658,23 +665,23 @@ static void stage_fetch(procsim_stats_t *stats) {
 // state, and statistics.
 void procsim_init(const procsim_conf_t *sim_conf, procsim_stats_t *stats) {
     // TODO: fill me in
-
     // 1. RAT
     RAT_size = NUM_REGS;
+    RAT.resize(RAT_size);
     // RAT is initialized to point to the architectural registers
     for (size_t i = 0; i < RAT_size; i++) {
         RAT[i] = i;
     }
 
     // 2. RF
-    RF_size = sim_conf->num_pregs + NUM_REGS;
+    RF_size = sim_conf->num_pregs + RAT_size;
     RF.assign(RF_size, {true, true});
     // All architecture registers are ready but not free (never free)
-    for (size_t i = 0; i < NUM_REGS; i++) {
+    for (size_t i = 0; i < RAT_size; i++) {
         RF[i].free = false;
     }
     // All phyiscal registers are free but bot ready
-    for (size_t i = NUM_REGS; i < RF_size; i++) {
+    for (size_t i = RAT_size; i < RF_size; i++) {
         RF[i].ready = false;
     }
 
@@ -704,7 +711,7 @@ void procsim_init(const procsim_conf_t *sim_conf, procsim_stats_t *stats) {
     ROBQ_capacity = sim_conf->num_rob_entries;
 
 #ifdef DEBUG
-    printf("\nScheduling queue capacity: %lu instructions\n", 0lu); // TODO: Fix Me
+    printf("\nScheduling queue capacity: %lu instructions\n", ScheQ_capacity); // TODO: Fix Me
     printf("Initial RAT state:\n"); //  PROVIDED
     print_rat();
     printf("\n"); //  PROVIDED
@@ -746,10 +753,14 @@ uint64_t procsim_do_cycle(procsim_stats_t *stats,
         stage_fetch(stats);
     }
 
+    uint64_t dispq_size_this_cycle = DispQ.size();
+    uint64_t scheq_size_this_cycle = ScheQ.size();
+    uint64_t robq_size_this_cycle = ROBQ.size();
+
 #ifdef DEBUG
-    printf("End-of-cycle dispatch queue usage: %lu\n", 0ul); // TODO: Fix Me
-    printf("End-of-cycle sched queue usage: %lu\n", 0ul); // TODO: Fix Me
-    printf("End-of-cycle ROB usage: %lu\n", 0ul); // TODO: Fix Me
+    printf("End-of-cycle dispatch queue usage: %lu\n", dispq_size_this_cycle); // TODO: Fix Me
+    printf("End-of-cycle sched queue usage: %lu\n", scheq_size_this_cycle); // TODO: Fix Me
+    printf("End-of-cycle ROB usage: %lu\n", robq_size_this_cycle); // TODO: Fix Me
     printf("End-of-cycle RAT state:\n"); // PROVIDED
     print_rat(); // PROVIDED
     printf("End-of-cycle Physical Register file state:\n"); // PROVIDED
@@ -763,6 +774,14 @@ uint64_t procsim_do_cycle(procsim_stats_t *stats,
     // TODO: Increment max_usages and avg_usages in stats here!
     stats->cycles++;
 
+    stats->dispq_max_usage = max(stats->dispq_max_usage, dispq_size_this_cycle);
+    stats->schedq_max_usage = max(stats->schedq_max_usage, scheq_size_this_cycle);
+    stats->rob_max_usage = max(stats->rob_max_usage, robq_size_this_cycle);
+    dispq_size_sum += dispq_size_this_cycle;
+    scheq_size_sum += scheq_size_this_cycle;
+    robq_size_sum += robq_size_this_cycle;
+    retire_inst_sum += retired_this_cycle;
+
     // Return the number of instructions we retired this cycle (including the
     // interrupt we retired, if there was one!)
     return retired_this_cycle;
@@ -772,4 +791,8 @@ uint64_t procsim_do_cycle(procsim_stats_t *stats,
 // calculate some final statistics.
 void procsim_finish(procsim_stats_t *stats) {
     // TODO: fill me in
+    stats->dispq_avg_usage = (double) dispq_size_sum / stats->cycles;
+    stats->schedq_avg_usage = (double) scheq_size_sum / stats->cycles;
+    stats->rob_avg_usage = (double) robq_size_sum / stats->cycles;
+    stats->ipc = (double) retire_inst_sum / stats->cycles;
 }
