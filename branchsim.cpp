@@ -56,6 +56,7 @@ bool gselect_predict(branch_t *br) {
 void gselect_update_predictor(branch_t *br) {
 #ifdef DEBUG
     printf("\tGSelect: Updating based on actual behavior: %d\n", (int) br->is_taken); // PROVIDED
+    uint64_t old_ghr = ghr; // before ghr is assigned
 #endif
 
     bool isTaken = br->is_taken;
@@ -64,7 +65,6 @@ void gselect_update_predictor(branch_t *br) {
     Counter_update(&counter_table[index], isTaken); // update Smith counters
 
 #ifdef DEBUG
-    uint64_t old_ghr = ghr; // before ghr is assigned
     uint64_t row = extract_bits(br->ip, 2 + P - 1, 2);  // pth row
     uint64_t new_counter_value = Counter_get(&counter_table[index]);
     printf("\t\tHistory: 0x%" PRIx64 ", Counter index: 0x%" PRIx64 ", New Counter value: 0x%" PRIx64 ", New History: 0x%" PRIx64 "\n", old_ghr, row, new_counter_value, ghr);
@@ -113,6 +113,7 @@ bool gsplit_predict(branch_t *br) {
 void gsplit_update_predictor(branch_t *br) {
 #ifdef DEBUG
     printf("\tGSplit: Updating based on actual behavior: %d\n", (int) br->is_taken); // PROVIDED
+    uint64_t old_ghr = ghr; // before ghr is assigned
 #endif
 
     bool isTaken = br->is_taken;
@@ -121,7 +122,6 @@ void gsplit_update_predictor(branch_t *br) {
     Counter_update(&counter_table[index], isTaken); // update Smith counters
 
 #ifdef DEBUG
-    uint64_t old_ghr = ghr; // before ghr is assigned
     uint64_t new_counter_value = Counter_get(&counter_table[index]);
     printf("\t\tHistory: 0x%" PRIx64 ", Counter index: 0x%" PRIx64 ", New Counter value: 0x%" PRIx64 ", New History: 0x%" PRIx64 "\n", old_ghr, index, new_counter_value, ghr);
 #endif
