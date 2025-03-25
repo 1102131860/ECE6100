@@ -93,11 +93,10 @@ static vector<size_t> CDB;
 static size_t ROBQ_capacity;
 static deque<ROB_t> ROBQ;
 
-// Sum of DispQ, ScheQ, ROBQ and number of retured instructions for each cycles
+// Sum of DispQ, ScheQ, ROBQ for each cycles
 static uint64_t dispq_size_sum = 0;
 static uint64_t scheq_size_sum = 0;
 static uint64_t robq_size_sum = 0;
-static uint64_t retire_inst_sum = 0;
 
 // Helper functions
 
@@ -232,55 +231,66 @@ static uint64_t stage_state_update(procsim_stats_t *stats,
                                    bool *retired_mispredict_out) {
     // TODO: fill me in
     uint64_t retirement_count = 0;
-    // Because earse happens, cannot directly ++rob
-    for (auto rob = ROBQ.begin(); rob != ROBQ.end(); /*++rob*/) {
-        // ROB hasn't complete, skip
-        if (!rob->ready) {
-            ++rob;
-            continue;
-        }
-
-        // rob is ready/retire (complete execution)
-        retirement_count++;
-        // increment instructions_retired
-        stats->instructions_retired++;
-
-        // No mispredict occurs
-        if (rob->opcode != OPCODE_BRANCH || !rob->mispredict) {
-            // retring an instruction will commit their dest reg to the ARegs
-            // since we aren't modeling data, don't need actually model this behavior
-            // when the prev preg is a Preg (not a Areg), free it
-            if (rob->prevPreg >= RAT_size) {
-                RF[rob->prevPreg].free = true;
-            }
-
-            // delete the rob from ROBQ
-            ROBQ.erase(rob);
-        } // mispredict occurs
-        else {
-            // call procsim_driver_update_predictor function to update branch predictor
-            procsim_driver_update_predictor(rob->pc, !rob->br_taken, rob->dyn_instruction_count);
-            // set retired_mispredict_out to true
-            *retired_mispredict_out = true;
-            // reset the register files and RAT to initial values
-            // RAT is initialized to point to the architectural registers
-            // All architecture registers are ready but not free (never free)
-            for (size_t i = 0; i < RAT_size; i++) {
-                RAT[i] = i;
-                RF[i].ready = true;
-                RF[i].free = false;
-            }
-            // All phyiscal registers are free but bot ready
-            for (size_t i = RAT_size; i < RF_size; i++) {
-                RF[i].ready = false;
-                RF[i].free = true;
-            }
-
-            // delete the rob from ROBQ
-            ROBQ.erase(rob);
-            // stop retiring any more instructions
+    while (true) {
+        // ROBQ is empty, no retirement
+        if (ROBQ.empty()) {
             break;
         }
+        // check the head of ROBQ
+        ROB_t rob = ROBQ.front();
+
+        // head rob is not ready, don't further check the following robs
+        if (!rob.ready) {
+            break;
+        }
+
+        // head is ready
+        // increase retirement_count and instructions_retired
+        retirement_count++;
+        stats->instructions_retired++;
+
+        // inst is a branch
+        if (rob.opcode == OPCODE_BRANCH) {
+            // increment num_branch_instructions
+            stats->num_branch_instructions++;
+            // call procsim_driver_update_predictor function to update branch predictor
+            procsim_driver_update_predictor(rob.pc, rob.br_taken, rob.dyn_instruction_count);
+
+            // mispredict occurs
+            if (rob.mispredict) {
+                // set retired_mispredict_out to true
+                *retired_mispredict_out = true;
+                // reset the register files and RAT to initial values
+                // RAT is initialized to point to the architectural registers
+                // All architecture registers are ready but not free (never free)
+                for (size_t i = 0; i < RAT_size; i++) {
+                    RAT[i] = i;
+                    RF[i].ready = true;
+                    RF[i].free = false;
+                }
+                // All phyiscal registers are free but bot ready
+                for (size_t i = RAT_size; i < RF_size; i++) {
+                    RF[i].ready = false;
+                    RF[i].free = true;
+                }
+
+                // delete the head rob from ROBQ
+                ROBQ.pop_front();
+                // stop retiring any more instructions
+                break;
+            }
+        }
+
+        // not a branch or no mispredict occurs
+        // retring an instruction will commit their dest reg to the ARegs
+        // since we aren't modeling data, don't need actually model this behavior
+        // when the prev preg is a Preg (not a Areg), free it
+        if (rob.prevPreg >= RAT_size) {
+            RF[rob.prevPreg].free = true;
+        }
+
+        // delete the head rob from ROBQ
+        ROBQ.pop_front();
     }
 
 #ifdef DEBUG
@@ -363,7 +373,7 @@ static void stage_exec(procsim_stats_t *stats) {
         }
 
         // delete the completed instruction I
-        ScheQ.erase(rs);
+        rs = ScheQ.erase(rs);
     }
 
 #ifdef DEBUG
@@ -508,28 +518,42 @@ static void stage_dispatch(procsim_stats_t *stats) {
         }
         // fill ScheQ with instructions from the head of DispQ
         inst_t I = DispQ.front();
-        // Instruction I now is "dispatched"
-        DispQ.pop_front();
 
-        // 2. already dispatched dispatch_width NOPs, stall
+        // 2. ScheQ is full, stall
+        if (ScheQ.size() >= ScheQ_capacity) {
+            break;
+        }
+        // initial rs
+        RS_t rs;
+
+        // 3. ROBQ is full, stall
+        if (ROBQ.size() >= ROBQ_capacity) {
+            // increment No_dispatch_cycles_rob
+            stats->rob_no_dispatch_cycles++;
+            break;
+        }
+        // initial rob
+        ROB_t rob;
+        
+        // 4. already dispatched dispatch_width NOPs, stall
         if (NOP_count >= dispatch_width) {
             break;
         }
         // I is a NOP
         if (I.dest == (int8_t)0) {
             NOP_count++;
-            // should be dropped
+            // Inst NOP should be dropped
+            DispQ.pop_front();
             continue;
         }
 
-        // 3. already dispacthed dispacth_width are not NOPs, stall
+        // 5. already dispacthed dispacth_width are not NOPs, stall
         if (Not_NOP_count >= dispatch_width) {
             break;
         }
         // I is not a NOP
         Not_NOP_count++;
 
-        RS_t rs;
         // set a reservation station's function unit specifier
         if (I.opcode == OPCODE_ADD || I.opcode == OPCODE_BRANCH) {
             rs.fu = ALU_FU;
@@ -540,8 +564,10 @@ static void stage_dispatch(procsim_stats_t *stats) {
         }
         // rs hasn't allocate to a specific FU, use unified_size to indicate invalid
         rs.fu_no = unified_size;
-        // rs hasn't been fired in the dispatch stage
+        // rs hasn't been fired in the dispatch stage (initially)
         rs.fire_stage = 0;
+        // set destPreg as an invalid index (initially)
+        rs.destPreg = RF_size;
         // set source pregs using the RAT
         rs.src1Preg = (I.src1 == (int8_t)-1) ? RF_size : RAT[I.src1];
         rs.src2Preg = (I.src2 == (int8_t)-1) ? RF_size : RAT[I.src2];
@@ -550,7 +576,9 @@ static void stage_dispatch(procsim_stats_t *stats) {
         rs.dcache_hit = I.dcache_hit;
         rs.dyn_instruction_count = I.dyn_instruction_count;
 
-        ROB_t rob;
+        // set the ROB prev preg, dest preg as invalid indices (initially)
+        rob.destAreg = RAT_size;
+        rob.prevPreg = RF_size;
         // set the ROB's ready to false
         rob.ready = false;
         // record the ROB's pc, br_taken, opcode, mispredict and dyn_instruction_count
@@ -568,7 +596,7 @@ static void stage_dispatch(procsim_stats_t *stats) {
 
             // search a free Preg
             size_t preg_index = free_Preg_available();
-            // 4. No free Preg for a destination, stall
+            // 6. No free Preg for a destination, stall
             if (preg_index == RF_size) {
                 // increment No_dispatch_cycles_pregs
                 stats->no_dispatch_pregs_cycles++;
@@ -582,31 +610,15 @@ static void stage_dispatch(procsim_stats_t *stats) {
             RF[preg_index].free = false;
             // update RAT, after 'rob.prevPreg = RAT[I.dest]'
             RAT[I.dest] = preg_index;
-        } // an instruction hasn't a dest
-        else {
-            // set the ROB prev preg, dest preg as invalid indices
-            rob.destAreg = RAT_size;
-            rob.prevPreg = RF_size;
-            // set destPreg as an invalid index
-            rs.destPreg = RF_size;
-            // no need to set RF and RAT
         }
 
-        // 5. ROBQ is full, stall
-        if (ROBQ.size() >= ROBQ_capacity) {
-            // increment No_dispatch_cycles_rob
-            stats->rob_no_dispatch_cycles++;
-            break;
-        }
         // add to the tail of ROBQ
         ROBQ.push_back(rob);
-
-        // 6. ScheQ is full, stall
-        if (ScheQ.size() >= ScheQ_capacity) {
-            break;
-        }
         // add to the tail of ScheQ
         ScheQ.push_back(rs);
+
+        // Instruction I now is "dispatched"
+        DispQ.pop_front();
     }
 
 #ifdef DEBUG
@@ -780,7 +792,6 @@ uint64_t procsim_do_cycle(procsim_stats_t *stats,
     dispq_size_sum += dispq_size_this_cycle;
     scheq_size_sum += scheq_size_this_cycle;
     robq_size_sum += robq_size_this_cycle;
-    retire_inst_sum += retired_this_cycle;
 
     // Return the number of instructions we retired this cycle (including the
     // interrupt we retired, if there was one!)
@@ -794,5 +805,5 @@ void procsim_finish(procsim_stats_t *stats) {
     stats->dispq_avg_usage = (double) dispq_size_sum / stats->cycles;
     stats->schedq_avg_usage = (double) scheq_size_sum / stats->cycles;
     stats->rob_avg_usage = (double) robq_size_sum / stats->cycles;
-    stats->ipc = (double) retire_inst_sum / stats->cycles;
+    stats->ipc = (double) stats->instructions_retired / stats->cycles;
 }
