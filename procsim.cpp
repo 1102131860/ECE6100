@@ -516,56 +516,55 @@ static void stage_dispatch(procsim_stats_t *stats) {
     // TODO: fill me in
     size_t NOP_count = 0;
     size_t Not_NOP_count = 0;
+    bool ROBQ_is_full = false;
+    bool no_free_Preg = false;
+
     while (true) {
-        // 1. nothing in the DispQ, stall
+        // 1. there is nothing in the dispatch queue, you must stall.
         if (DispQ.empty()) {
             break;
         }
-        // fill ScheQ with instructions from the head of DispQ
-        inst_t I = DispQ.front();
 
-        // 3. ROBQ is full, stall
+        // 2. there is not sufficient room in the ROB, Dispatch should stall
         if (ROBQ.size() >= ROBQ_capacity) {
-            // increment No_dispatch_cycles_rob
-            stats->rob_no_dispatch_cycles++;
+            ROBQ_is_full = true;
             break;
         }
-        // initial rob
-        ROB_t rob;
 
-        // 2. ScheQ is full, stall
+        // 3. the scheduling queue is full, you must stall
         if (ScheQ.size() >= ScheQ_capacity) {
             break;
         }
-        // initial rs
-        RS_t rs;
 
-        // // 3. ROBQ is full, stall
-        // if (ROBQ.size() >= ROBQ_capacity) {
-        //     // increment No_dispatch_cycles_rob
-        //     stats->rob_no_dispatch_cycles++;
-        //     break;
-        // }
-        // // initial rob
-        // ROB_t rob;
+        // fill ScheQ with instructions from the head of DispQ
+        inst_t I = DispQ.front();
+        size_t preg_index = free_Preg_available();
 
-        // 4. already dispatched dispatch_width NOPs, stall
-        if (NOP_count >= dispatch_width) {
+        // 4. I is not a NOP, has a dest, and hasn't a free Preg, stall
+        if (I.dest != (int8_t)0 && I.dest != (int8_t)-1 && preg_index == RF_size) {
+            no_free_Preg = true;
             break;
         }
-        // I is a NOP
+
+        // 5. already dispatched dispatched_width NOPs, you must stall
+        // 6. already dispatched dispatched with Not_NOPS, you must stall
+        if (NOP_count >= dispatch_width || Not_NOP_count >= dispatch_width) {
+            break;
+        }
+
+        // Delete I from DispQ, instruction I is now "dispatched"
+        DispQ.pop_front();
+
+        // NOPs from the dispatch queue should be dropped
         if (I.dest == (int8_t)0) {
             NOP_count++;
-            // Inst NOP should be dropped
-            DispQ.pop_front();
+            // cannot be put into the scheduling queue
             continue;
         }
+        // I is not a NOP
+        Not_NOP_count++;
 
-        // 5. already dispacthed dispacth_width are not NOPs, stall
-        if (Not_NOP_count >= dispatch_width) {
-            break;
-        }
-
+        RS_t rs;
         // set a reservation station's function unit specifier
         if (I.opcode == OPCODE_ADD || I.opcode == OPCODE_BRANCH) {
             rs.fu = ALU_FU;
@@ -588,6 +587,7 @@ static void stage_dispatch(procsim_stats_t *stats) {
         rs.dcache_hit = I.dcache_hit;
         rs.dyn_instruction_count = I.dyn_instruction_count;
 
+        ROB_t rob;
         // set the ROB prev preg, dest preg as invalid indices (initially)
         rob.destAreg = RAT_size;
         rob.prevPreg = RF_size;
@@ -605,18 +605,9 @@ static void stage_dispatch(procsim_stats_t *stats) {
             // set the ROB prev preg, dest preg
             rob.destAreg = I.dest;
             rob.prevPreg = RAT[I.dest];
-
-            // search a free Preg
-            size_t preg_index = free_Preg_available();
-            // 6. No free Preg for a destination, stall
-            if (preg_index == RF_size) {
-                // increment No_dispatch_cycles_pregs
-                stats->no_dispatch_pregs_cycles++;
-                break;
-            }
-
             // set the rs dest to the found free preg
             rs.destPreg = preg_index;
+
             // mark the RF[preg_index] as not ready and not free
             RF[preg_index].ready = false;
             RF[preg_index].free = false;
@@ -628,11 +619,23 @@ static void stage_dispatch(procsim_stats_t *stats) {
         ROBQ.push_back(rob);
         // add to the tail of ScheQ
         ScheQ.push_back(rs);
+    }
 
-        // Instruction I now is "dispatched"
-        DispQ.pop_front();
-        // I is not a NOP
-        Not_NOP_count++;
+    bool dispatch_is_smaller_than_width = NOP_count < dispatch_width && Not_NOP_count < dispatch_width;
+
+    // Only due to ROBQ is full
+    // if you have instructions in dispatch queue (dispatch queue size > 0)
+    // and you have not yet dispatched dispatch width no of instructions,
+    // then if ROB is full you increment this stat
+    if (ROBQ_is_full /*&& ScheQ.size() < ScheQ_capacity*/ && !no_free_Preg && dispatch_is_smaller_than_width) {
+        // increase the rob no dispatch cycles counter
+        stats->rob_no_dispatch_cycles++;
+    }
+
+    // Only due to no free Preg
+    if (no_free_Preg && dispatch_is_smaller_than_width) {
+        // increase the preg no dispatch cycles counter
+        stats->no_dispatch_pregs_cycles++;
     }
 
 #ifdef DEBUG
