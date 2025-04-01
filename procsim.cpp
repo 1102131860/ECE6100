@@ -463,7 +463,9 @@ static void stage_schedule(procsim_stats_t *stats) {
                         }
                     }
                     // when this store inst can fire, mark enable_fire_store as false
-                    enable_fire_store = false;
+                    if (!violate_mem_disam) {
+                        enable_fire_store = false;
+                    }
                 } // only 1 store can be fired per cycle
                 else {
                     violate_mem_disam = true;
@@ -495,6 +497,9 @@ static void stage_schedule(procsim_stats_t *stats) {
 
 #ifdef DEBUG
     printf("Stage Schedule: \n"); //  PROVIDED
+    if (no_fire) {
+        printf("\tCould not find scheduling queue entry to fire this cycle\n");
+    }
 #endif
 }
 
@@ -519,13 +524,6 @@ static void stage_dispatch(procsim_stats_t *stats) {
         // fill ScheQ with instructions from the head of DispQ
         inst_t I = DispQ.front();
 
-        // 2. ScheQ is full, stall
-        if (ScheQ.size() >= ScheQ_capacity) {
-            break;
-        }
-        // initial rs
-        RS_t rs;
-
         // 3. ROBQ is full, stall
         if (ROBQ.size() >= ROBQ_capacity) {
             // increment No_dispatch_cycles_rob
@@ -534,7 +532,23 @@ static void stage_dispatch(procsim_stats_t *stats) {
         }
         // initial rob
         ROB_t rob;
-        
+
+        // 2. ScheQ is full, stall
+        if (ScheQ.size() >= ScheQ_capacity) {
+            break;
+        }
+        // initial rs
+        RS_t rs;
+
+        // // 3. ROBQ is full, stall
+        // if (ROBQ.size() >= ROBQ_capacity) {
+        //     // increment No_dispatch_cycles_rob
+        //     stats->rob_no_dispatch_cycles++;
+        //     break;
+        // }
+        // // initial rob
+        // ROB_t rob;
+
         // 4. already dispatched dispatch_width NOPs, stall
         if (NOP_count >= dispatch_width) {
             break;
@@ -551,8 +565,6 @@ static void stage_dispatch(procsim_stats_t *stats) {
         if (Not_NOP_count >= dispatch_width) {
             break;
         }
-        // I is not a NOP
-        Not_NOP_count++;
 
         // set a reservation station's function unit specifier
         if (I.opcode == OPCODE_ADD || I.opcode == OPCODE_BRANCH) {
@@ -619,6 +631,8 @@ static void stage_dispatch(procsim_stats_t *stats) {
 
         // Instruction I now is "dispatched"
         DispQ.pop_front();
+        // I is not a NOP
+        Not_NOP_count++;
     }
 
 #ifdef DEBUG
@@ -634,8 +648,7 @@ static void stage_dispatch(procsim_stats_t *stats) {
 // that NOP should be dropped at the dispatch stage
 static void stage_fetch(procsim_stats_t *stats) {
     // TODO: fill me in
-    bool end_of_trace = false;
-    for (size_t i = 0; i < fetch_width && !end_of_trace; i++) {
+    for (size_t i = 0; i < fetch_width; i++) {
         driver_read_status_t driver_read_status_output;
         const inst_t* inst = procsim_driver_read_inst(&driver_read_status_output);
 
@@ -655,12 +668,11 @@ static void stage_fetch(procsim_stats_t *stats) {
         case DRIVER_READ_MISPRED:
             // don't push NOPs into the dispatch queue
             // should make i-- to maintain the fetch_width?
-            // increment instructions_fetched due to a branch misprediction
+            // count NOPs only when the reason for them are due to a branch misprediction
             stats->instructions_fetched++;
             break;
         case DRIVER_READ_END_OF_TRACE:
             // finish fetching
-            end_of_trace = true;
             break;
         default:
             // do nothing
@@ -775,7 +787,7 @@ uint64_t procsim_do_cycle(procsim_stats_t *stats,
     printf("End-of-cycle ROB usage: %lu\n", robq_size_this_cycle); // TODO: Fix Me
     printf("End-of-cycle RAT state:\n"); // PROVIDED
     print_rat(); // PROVIDED
-    printf("End-of-cycle Physical Register file state:\n"); // PROVIDED
+    printf("End-of-cycle Physical Register File state:\n"); // PROVIDED, file -> File
     print_prf(); // PROVIDED
     printf("End-of-cycle ROB state:\n"); // PROVIDED
     print_rob(); // PROVIDED
