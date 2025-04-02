@@ -5,15 +5,11 @@
 #include <assert.h>
 #include <stdio.h>
 #include <vector>
-#include <deque>
+#include <list>
 
 using namespace std;
 
 #include "procsim.hpp"
-
-//
-// TODO: Define any useful data structures and functions here
-//
 
 typedef enum {
     ALU_FU = 0,
@@ -57,7 +53,7 @@ typedef struct {
 // DispatchQueue
 // don't specified the size, but every time fill fetch f instructions
 static size_t fetch_width;
-static deque<inst_t> DispQ;
+static list<inst_t> DispQ;
 
 // RAT
 // size: NUM REGS
@@ -75,7 +71,7 @@ static vector<reg_t> RF;
 // resize: -p : (s x (a + m + l))
 static size_t dispatch_width;
 static size_t ScheQ_capacity;
-static deque<RS_t> ScheQ;
+static list<RS_t> ScheQ;
 
 // FU Scoreboard
 // resize -a, -m, -l, first a is ALU, second m is MUL and third l is LSU
@@ -84,14 +80,10 @@ static size_t mul_lsu_divide_index;
 static size_t unified_size;
 static vector<bool> FUSB;
 
-// Result Buses
-// size is same with FU's unified_size
-static vector<size_t> CDB;
-
 // ROB Queue
 // size: (p + 32)
 static size_t ROBQ_capacity;
-static deque<ROB_t> ROBQ;
+static list<ROB_t> ROBQ;
 
 // Sum of DispQ, ScheQ, ROBQ for each cycles
 static uint64_t dispq_size_sum = 0;
@@ -119,15 +111,21 @@ size_t free_FU_available(FU_t fu) {
     size_t start_index = 0;
     size_t end_index = 0;
 
-    if (fu == ALU_FU) {
+    switch (fu) {
+    case ALU_FU:
         start_index = 0;
         end_index = alu_mul_divide_index;
-    } else if (fu == MUL_FU) {
+        break;
+    case MUL_FU:
         start_index = alu_mul_divide_index;
         end_index = mul_lsu_divide_index;
-    } else {
+        break;
+    case LSU_FU:
         start_index = mul_lsu_divide_index;
         end_index = unified_size;
+        break;
+    default:
+        break;
     }
 
     for (size_t i = start_index; i < end_index; i++) {
@@ -137,7 +135,6 @@ size_t free_FU_available(FU_t fu) {
     }
     return unified_size;
 }
-
 
 
 // The helper functions in this#ifdef are optional and included here for your
@@ -229,16 +226,16 @@ static void print_prf(void) {
 // During mispredict, reset the register files and RAT to initial values.
 static uint64_t stage_state_update(procsim_stats_t *stats,
                                    bool *retired_mispredict_out) {
-    // TODO: fill me in
     uint64_t retirement_count = 0;
+
     while (true) {
         // ROBQ is empty, no retirement
         if (ROBQ.empty()) {
             break;
         }
+
         // check the head of ROBQ
         ROB_t rob = ROBQ.front();
-
         // head rob is not ready, don't further check the following robs
         if (!rob.ready) {
             break;
@@ -305,7 +302,6 @@ static uint64_t stage_state_update(procsim_stats_t *stats,
 // stalled there), setting the ready bits in the register file. This function 
 // should remove an instruction from the scheduling queue when it has completed.
 static void stage_exec(procsim_stats_t *stats) {
-    // TODO: fill me in
     // Because earse happens, cannot directly ++rs
     for (auto rs = ScheQ.begin(); rs != ScheQ.end(); /*++rs*/) {
         // RS hasn't been fired, don't execute RS
@@ -359,8 +355,7 @@ static void stage_exec(procsim_stats_t *stats) {
 
         // only when destPreg is valid, then update CDB and RF
         if (rs->destPreg != RF_size) {
-            // broadcast the results
-            CDB[rs->fu_no] = rs->destPreg;
+            // broadcast the results (ignore CDB here)
             // mark dest preg as ready (but not free)
             RF[rs->destPreg].ready = true;
         }
@@ -369,6 +364,7 @@ static void stage_exec(procsim_stats_t *stats) {
         for (auto rob = ROBQ.begin(); rob != ROBQ.end(); ++rob) {
             if (rob->dyn_instruction_count == rs->dyn_instruction_count) {
                 rob->ready = true;
+                break;
             }
         }
 
@@ -411,13 +407,9 @@ static void stage_exec(procsim_stats_t *stats) {
 // instructions stay in their reservation station in the scheduling queue until
 // they complete (at which point stage_exec() above should free their RS).
 static void stage_schedule(procsim_stats_t *stats) {
-    // TODO: fill me in
-
-    // use a copy vector for sort dyncount
-    // then iterate in that sorted vector, will it make sense?
-
     bool no_fire = true;
     bool enable_fire_store = true;
+
     for (auto rs = ScheQ.begin(); rs != ScheQ.end(); ++rs) {
         // RS has fired, don't fire RS again
         if (rs->fire_stage != 0) {
@@ -443,10 +435,9 @@ static void stage_schedule(procsim_stats_t *stats) {
             bool violate_mem_disam = false;
             if (rs->opcode == OPCODE_LOAD) {
                 // check whether there is a preceding store (RS can be fire at the stage of exec)
-                // use inst_t.dyn_instruction_count to determine preceding or not
-                for (auto it = ScheQ.begin(); it != ScheQ.end(); ++it) {
+                for (auto it = ScheQ.begin(); it != /*ScheQ.end()*/rs; ++it) {
                     // a Load instruction can never be fired before ALL Store instructions that precedes it in program order complete
-                    if (it->dyn_instruction_count < rs->dyn_instruction_count && it->opcode == OPCODE_STORE) {
+                    if (/*it->dyn_instruction_count < rs->dyn_instruction_count &&*/ it->opcode == OPCODE_STORE) {
                         violate_mem_disam = true;
                         break;
                     }
@@ -455,9 +446,9 @@ static void stage_schedule(procsim_stats_t *stats) {
             else {
                 if (enable_fire_store) {
                     // check whether there is a preceding load or store (FU = lsu) before this store
-                    for (auto it = ScheQ.begin(); it != ScheQ.end(); ++it) {
+                    for (auto it = ScheQ.begin(); it != /*ScheQ.end()*/rs; ++it) {
                         // a Store instruction can never be fired before ALL Load and Store instructions that precede it in program order complete
-                        if (it->dyn_instruction_count < rs->dyn_instruction_count && it->fu == LSU_FU) {
+                        if (/*it->dyn_instruction_count < rs->dyn_instruction_count &&*/ it->fu == LSU_FU) {
                             violate_mem_disam = true;
                             break;
                         }
@@ -513,7 +504,6 @@ static void stage_schedule(procsim_stats_t *stats) {
 // The PDF has details.
 // dispatch width is fetch width
 static void stage_dispatch(procsim_stats_t *stats) {
-    // TODO: fill me in
     size_t NOP_count = 0;
     size_t Not_NOP_count = 0;
     bool ROBQ_is_full = false;
@@ -566,12 +556,20 @@ static void stage_dispatch(procsim_stats_t *stats) {
 
         RS_t rs;
         // set a reservation station's function unit specifier
-        if (I.opcode == OPCODE_ADD || I.opcode == OPCODE_BRANCH) {
+        switch (I.opcode) {
+        case OPCODE_ADD:
+        case OPCODE_BRANCH:
             rs.fu = ALU_FU;
-        } else if (I.opcode == OPCODE_MUL) {
+            break;
+        case OPCODE_MUL:
             rs.fu = MUL_FU;
-        } else { // OPCODE_STORE, OPCODE_LOAD
+            break;
+        case OPCODE_STORE:
+        case OPCODE_LOAD:
             rs.fu = LSU_FU;
+            break;
+        default:
+            break;
         }
         // rs hasn't allocate to a specific FU, use unified_size to indicate invalid
         rs.fu_no = unified_size;
@@ -621,6 +619,7 @@ static void stage_dispatch(procsim_stats_t *stats) {
         ScheQ.push_back(rs);
     }
 
+    // common checks
     bool dispatch_is_smaller_than_width = NOP_count < dispatch_width && Not_NOP_count < dispatch_width;
 
     // Only due to ROBQ is full
@@ -650,7 +649,6 @@ static void stage_dispatch(procsim_stats_t *stats) {
 // insert a NOP to the dispatch queue
 // that NOP should be dropped at the dispatch stage
 static void stage_fetch(procsim_stats_t *stats) {
-    // TODO: fill me in
     for (size_t i = 0; i < fetch_width; i++) {
         driver_read_status_t driver_read_status_output;
         const inst_t* inst = procsim_driver_read_inst(&driver_read_status_output);
@@ -670,15 +668,12 @@ static void stage_fetch(procsim_stats_t *stats) {
             break;
         case DRIVER_READ_MISPRED:
             // don't push NOPs into the dispatch queue
-            // should make i-- to maintain the fetch_width?
             // count NOPs only when the reason for them are due to a branch misprediction
             stats->instructions_fetched++;
             break;
         case DRIVER_READ_END_OF_TRACE:
-            // finish fetching
-            break;
-        default:
             // do nothing
+        default:
             break;
         }
     }
@@ -691,7 +686,6 @@ static void stage_fetch(procsim_stats_t *stats) {
 // Use this function to initialize all your data structures, simulator
 // state, and statistics.
 void procsim_init(const procsim_conf_t *sim_conf, procsim_stats_t *stats) {
-    // TODO: fill me in
     // 1. RAT
     RAT_size = NUM_REGS;
     RAT.resize(RAT_size);
@@ -719,21 +713,17 @@ void procsim_init(const procsim_conf_t *sim_conf, procsim_stats_t *stats) {
     // All function units are ready
     FUSB.assign(unified_size, true);
 
-    // 4. CDB
-    // iniatially pointing to PReg0
-    CDB.assign(unified_size, 0);
-
-    // 5. DispQ
+    // 4. DispQ
     // Deque, defult is empty
     // No specific max size
     fetch_width = sim_conf->fetch_width;
 
-    // 6. ScheQ
+    // 5. ScheQ
     // Deque, defult is empty
     dispatch_width = sim_conf->dispatch_width;
     ScheQ_capacity = unified_size * sim_conf->num_schedq_entries_per_fu;
 
-    // 7. ROBQ
+    // 6. ROBQ
     // Deque, defult is empty
     ROBQ_capacity = sim_conf->num_rob_entries;
 
@@ -798,7 +788,7 @@ uint64_t procsim_do_cycle(procsim_stats_t *stats,
     print_instruction(NULL); // this makes the compiler happy, ignore it
 #endif
 
-    // TODO: Increment max_usages and avg_usages in stats here!
+    // Increment max_usages and avg_usages in stats here!
     stats->cycles++;
 
     stats->dispq_max_usage = max(stats->dispq_max_usage, dispq_size_this_cycle);
@@ -816,7 +806,6 @@ uint64_t procsim_do_cycle(procsim_stats_t *stats,
 // Use this function to free any memory allocated for your simulator and to
 // calculate some final statistics.
 void procsim_finish(procsim_stats_t *stats) {
-    // TODO: fill me in
     stats->dispq_avg_usage = (double) dispq_size_sum / stats->cycles;
     stats->schedq_avg_usage = (double) scheq_size_sum / stats->cycles;
     stats->rob_avg_usage = (double) robq_size_sum / stats->cycles;
