@@ -1,24 +1,32 @@
 #include "branchsim.hpp"
 
-uint64_t extract_bits(uint64_t target, uint64_t left, uint64_t right) {
-    return (target >> right) & ((1UL << (left - right + 1)) - 1);
-}
-
-uint64_t gselect_get_index(uint64_t pc, uint64_t ghr, uint64_t H, uint64_t P) {
-    uint64_t row = extract_bits(pc, 2 + P - 1, 2);  // pth row
-    return row * (1UL << H) + ghr;
-}
-
-uint64_t gsplit_get_index(uint64_t address, uint64_t ghr, uint64_t H, uint64_t P) {
-    uint64_t pc = extract_bits(address, 2 + H - 1, 2);
-    uint64_t PC_HASH = extract_bits(pc, H - P - 1, 0);  // (H - P) bits wide
-    uint64_t HIST_HASH = extract_bits(ghr, H - P - 1, 0);   // (H - P) bits wide
-    uint64_t SHARE_HASH = extract_bits(pc ^ ghr, H - 1, H - P); // P bits wide
-    return (SHARE_HASH << (2 * (H - P))) | (HIST_HASH << (H - P)) | PC_HASH; // (2*H - P) bits wide
-}
-
 static uint64_t H, P, ghr;
 static Counter_t* counter_table = NULL;
+
+uint64_t gselect_get_index(uint64_t pc) {
+    // PC[2+P−1:2], P bits wide
+    uint64_t row = (pc >> 2) & ((1UL << P) - 1);
+
+    // selects the appropriate counter in that row using the GHR[H−1:0]
+    return (row << H) | ghr;
+}
+
+uint64_t gsplit_get_index(uint64_t address) {
+    // uses bits [2+H−1:2] of the branch address as PC, H bits wide
+    uint64_t pc_bits = (address >> 2) & ((1UL << H) - 1);
+
+    // PC_HASH = PC[H−P−1:0], (H-P) bits wide
+    uint64_t pc_hash = pc_bits & ((1UL << (H - P)) - 1);
+
+    // HIST_HASH = GHR[H−P−1:0], (H-P) bits wide
+    uint64_t hist_hash = ghr & ((1UL << (H - P)) - 1);
+
+    // SHARE_HASH = XOR(PC,GHR)[H−1:H−P], P bits wide
+    uint64_t share_hash = ((pc_bits ^ ghr) >> (H - P)) & ((1UL << P) - 1);
+
+    // SHARE_HASH|HIST_HASH|PC_HASH, (2*H - P) bits wide
+    return (share_hash << (2 * (H - P))) | (hist_hash << (H - P)) | pc_hash;
+}
 
 void gselect_init_predictor(branchsim_conf_t *sim_conf) {
     H = sim_conf->H;    // 2 ^ H counters in a row
@@ -43,7 +51,7 @@ bool gselect_predict(branch_t *br) {
     printf("\tGSelect: Predicting... \n"); // PROVIDED
 #endif
 
-    uint64_t index = gselect_get_index(br->ip, ghr, H, P);
+    uint64_t index = gselect_get_index(br->ip);
     bool isTaken = Counter_isTaken(&counter_table[index]);
 
 #ifdef DEBUG
@@ -60,7 +68,7 @@ void gselect_update_predictor(branch_t *br) {
 #endif
 
     bool isTaken = br->is_taken;
-    uint64_t index = gselect_get_index(br->ip, ghr, H, P);
+    uint64_t index = gselect_get_index(br->ip);
     ghr = (ghr << 1 | isTaken) & ((1UL << H) - 1);  // update GHR
     Counter_update(&counter_table[index], isTaken); // update Smith counters
 
@@ -101,7 +109,7 @@ bool gsplit_predict(branch_t *br) {
     printf("\tGSplit: Predicting... \n"); // PROVIDED
 #endif
     
-    uint64_t index = gsplit_get_index(br->ip, ghr, H, P);
+    uint64_t index = gsplit_get_index(br->ip);
     bool isTaken = Counter_isTaken(&counter_table[index]);
 
 #ifdef DEBUG
@@ -117,7 +125,7 @@ void gsplit_update_predictor(branch_t *br) {
 #endif
 
     bool isTaken = br->is_taken;
-    uint64_t index = gsplit_get_index(br->ip, ghr, H, P);
+    uint64_t index = gsplit_get_index(br->ip);
     ghr = (ghr << 1 | isTaken) & ((1UL << H) - 1);  // update GHR
     Counter_update(&counter_table[index], isTaken); // update Smith counters
 
