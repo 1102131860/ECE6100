@@ -23,11 +23,11 @@ typedef struct {
     size_t destPreg;
     size_t src1Preg;
     size_t src2Preg;
-
     size_t fu_no;                   // refer to FUSB[fu_no]
     size_t fire_stage;              // 0: hasn't fire; 1: fire; 2: 1-stage complete; 3: 2-stage complete; 4: 3-stage completes ...
-    opcode_t opcode;                // judge LOAD or STORE
-    cache_lentency_t dcache_hit;    // determine the stall cycles of LSU
+    size_t complete_stage;          // used to determine whether rs completes or not
+
+    opcode_t opcode;                // judge LOAD or STORE in Memory Disambiguation
     uint64_t dyn_instruction_count; // determine program order
 } RS_t;
 
@@ -318,30 +318,8 @@ static void stage_exec(procsim_stats_t *stats) {
         }
 
         // check compeletion
-        // the initial fire_stage starts from 1, so the true complete stage needs to add 1
-        size_t complete_stage = 2;
-        // ALU
-        if (rs->fu == ALU_FU) {
-            complete_stage = ALU_STAGES + 1;
-        } // MUL
-        else if (rs->fu == MUL_FU) {
-            complete_stage = MUL_STAGES + 1;
-        } // LSU (STORE)
-        else if (rs->opcode == OPCODE_STORE) {
-            complete_stage = LSU_STAGES + 1;
-        } // LSU (LOAD) and L1 hit
-        else if (rs->dcache_hit == CACHE_LATENCY_L1_HIT) {
-            complete_stage = L1_HIT_CYCLES + 1;
-        } // LSU (LOAD) and L2 hit
-        else if (rs->dcache_hit == CACHE_LATENCY_L2_HIT) {
-            complete_stage = L2_HIT_CYCLES + 1;
-        } // LSU (LOAD) and L2 miss
-        else if (rs->dcache_hit == CACHE_LATENCY_L2_MISS) {
-            complete_stage = L2_MISS_CYCLES + 1;
-        }
-
         // not complete
-        if (rs->fire_stage < complete_stage) {
+        if (rs->fire_stage < rs->complete_stage) {
             // move iterator to next
             ++rs;
             continue;
@@ -560,14 +538,36 @@ static void stage_dispatch(procsim_stats_t *stats) {
         case OPCODE_ADD:
         case OPCODE_BRANCH:
             rs.fu = ALU_FU;
+            rs.complete_stage = ALU_STAGES + 1;
             break;
+
         case OPCODE_MUL:
             rs.fu = MUL_FU;
+            rs.complete_stage = MUL_STAGES + 1;
             break;
+
         case OPCODE_STORE:
+            rs.fu = LSU_FU;
+            rs.complete_stage = LSU_STAGES + 1;
+            break;
+
         case OPCODE_LOAD:
             rs.fu = LSU_FU;
+            switch (I.dcache_hit) {
+            case CACHE_LATENCY_L1_HIT:
+                rs.complete_stage = L1_HIT_CYCLES + 1;
+                break;
+            case CACHE_LATENCY_L2_HIT:
+                rs.complete_stage = L2_HIT_CYCLES + 1;
+                break;
+            case CACHE_LATENCY_L2_MISS:
+                rs.complete_stage = L2_MISS_CYCLES + 1;
+                break;
+            default:
+                break;
+            }
             break;
+
         default:
             break;
         }
@@ -580,9 +580,8 @@ static void stage_dispatch(procsim_stats_t *stats) {
         // set source pregs using the RAT
         rs.src1Preg = (I.src1 == (int8_t)-1) ? RF_size : RAT[I.src1];
         rs.src2Preg = (I.src2 == (int8_t)-1) ? RF_size : RAT[I.src2];
-        // record opcode, dcache_hit, and dyn_instruction_count
+        // record opcode and dyn_instruction_count
         rs.opcode = I.opcode;
-        rs.dcache_hit = I.dcache_hit;
         rs.dyn_instruction_count = I.dyn_instruction_count;
 
         ROB_t rob;
