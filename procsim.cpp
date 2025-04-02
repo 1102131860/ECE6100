@@ -78,7 +78,7 @@ static list<RS_t> ScheQ;
 static size_t alu_mul_divide_index;
 static size_t mul_lsu_divide_index;
 static size_t unified_size;
-static vector<bool> FUSB;
+static vector<uint8_t> FUSB;
 
 // ROB Queue
 // size: (p + 32)
@@ -129,7 +129,7 @@ size_t free_FU_available(FU_t fu) {
     }
 
     for (size_t i = start_index; i < end_index; i++) {
-        if (FUSB[i]) {
+        if (FUSB[i] == 1) {
             return i;
         }
     }
@@ -282,7 +282,7 @@ static uint64_t stage_state_update(procsim_stats_t *stats,
         // retring an instruction will commit their dest reg to the ARegs
         // since we aren't modeling data, don't need actually model this behavior
         // when the prev preg is a Preg (not a Areg), free it
-        if (rob.prevPreg >= RAT_size) {
+        if (rob.prevPreg >= RAT_size && rob.prevPreg < RF_size) {
             RF[rob.prevPreg].free = true;
         }
 
@@ -314,7 +314,7 @@ static void stage_exec(procsim_stats_t *stats) {
         rs->fire_stage++;
         // after 1 cycle, all piplined FU (only MUL_FU) can be free
         if (rs->fu == MUL_FU) {
-            FUSB[rs->fu_no] = true;
+            FUSB[rs->fu_no] = 1;
         }
 
         // check compeletion
@@ -328,7 +328,7 @@ static void stage_exec(procsim_stats_t *stats) {
         // at completion of instruction I
         // the non-piplined FU now can free
         if (rs->fu != MUL_FU) {
-            FUSB[rs->fu_no] = true;
+            FUSB[rs->fu_no] = 1;
         }
 
         // only when destPreg is valid, then update CDB and RF
@@ -454,7 +454,7 @@ static void stage_schedule(procsim_stats_t *stats) {
         // assign the sepcific FU
         rs->fu_no = fu_index;
         // set the fu as not free
-        FUSB[fu_index] = false;
+        FUSB[fu_index] = 0;
         // set no_fire to false
         no_fire = false;
     }
@@ -710,7 +710,7 @@ void procsim_init(const procsim_conf_t *sim_conf, procsim_stats_t *stats) {
     mul_lsu_divide_index = alu_mul_divide_index + sim_conf->num_mul_fus;
     unified_size = mul_lsu_divide_index + sim_conf->num_lsu_fus;
     // All function units are ready
-    FUSB.assign(unified_size, true);
+    FUSB.assign(unified_size, 1);
 
     // 4. DispQ
     // Deque, defult is empty
