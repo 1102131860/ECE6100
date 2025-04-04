@@ -1,0 +1,6 @@
+trace,Num. PREGS,ROB entries,Num. SchedQ entries per FU,Num. ALU FUs,Num. MUL FUs,Num. LSU FUs,Fetch width,Dispatch width,P,H,Predictor (M),Cycles,Trace instructions,Fetched instructions,Retired instructions,Total branch instructions,Branch Mispredictions,I-cache misses,D-cache misses,Cycles with no fires,No dispatch cycles due to ROB,No dispatch cycles due to PRegs,Max DispQ usage,Average DispQ usage,Max SchedQ usage,Average SchedQ usage,Max ROB usage,Average ROB usage,IPC,branch_pattern_table_size,reservation_station_size,resource_utilization
+deepsjeng531,32,64,4,2,1,2,4,4,9,6,GSELECT,1546821,2000000,5961722,2000000,171719,46409,1023,12840,513806,0,449110,225,16.566,20,9.288,51,14.731,1.293,8,20,411.0
+leela541,32,64,4,3,2,2,4,4,9,6,GSELECT,1296467,2000000,4981352,2000000,175075,48814,237,8662,331016,0,320732,550,15.346,28,8.641,47,13.149,1.543,8,28,430.0
+mcf505,32,64,4,2,1,2,2,2,9,6,GSELECT,2624403,2000000,5051939,2000000,418289,98429,0,51725,1419097,0,22944,205,2.935,20,7.991,47,13.057,0.762,8,20,407.0
+nab544,32,64,4,2,2,2,4,4,9,6,GSELECT,1614401,2000000,6204209,2000000,301908,63326,0,14553,537459,0,227896,4794,82.362,24,9.408,45,13.568,1.239,8,24,422.0
+xz557,32,64,4,1,1,2,2,2,9,6,GSELECT,1037282,2000000,2070521,2000000,938000,2015,0,3200,6857,0,400,42,3.218,16,8.095,23,10.518,1.928,8,16,399.0
