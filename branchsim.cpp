@@ -55,7 +55,7 @@ bool gselect_predict(branch_t *br) {
     bool isTaken = Counter_isTaken(&counter_table[index]);
 
 #ifdef DEBUG
-    uint64_t row = extract_bits(br->ip, 2 + P - 1, 2);  // pth row
+    uint64_t row = (br->ip >> 2) & ((1UL << P) - 1);  // pth row
     printf("\t\tHistory: 0x%" PRIx64 ", Counter index: 0x%" PRIx64 ", Prediction: %d\n", ghr, row, (int) isTaken);
 #endif
     return isTaken;
@@ -73,7 +73,7 @@ void gselect_update_predictor(branch_t *br) {
     Counter_update(&counter_table[index], isTaken); // update Smith counters
 
 #ifdef DEBUG
-    uint64_t row = extract_bits(br->ip, 2 + P - 1, 2);  // pth row
+    uint64_t row = (br->ip >> 2) & ((1UL << P) - 1);  // pth row
     uint64_t new_counter_value = Counter_get(&counter_table[index]);
     printf("\t\tHistory: 0x%" PRIx64 ", Counter index: 0x%" PRIx64 ", New Counter value: 0x%" PRIx64 ", New History: 0x%" PRIx64 "\n", old_ghr, row, new_counter_value, ghr);
 #endif
