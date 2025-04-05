@@ -625,7 +625,7 @@ static void stage_dispatch(procsim_stats_t *stats) {
     // if you have instructions in dispatch queue (dispatch queue size > 0)
     // and you have not yet dispatched dispatch width no of instructions,
     // then if ROB is full you increment this stat
-    if (ROBQ_is_full /*&& ScheQ.size() < ScheQ_capacity*/ && !no_free_Preg && dispatch_is_smaller_than_width) {
+    if (ROBQ_is_full /*&& ScheQ.size() < ScheQ_capacity && !no_free_Preg*/ && dispatch_is_smaller_than_width) {
         // increase the rob no dispatch cycles counter
         stats->rob_no_dispatch_cycles++;
     }
