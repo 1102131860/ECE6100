@@ -222,6 +222,37 @@ def plot_sactter_ICP_resource_utilizaition(df):
     plt.savefig(save_path, bbox_inches='tight', dpi=300)
     print(f"Saved scatter_filtered_and_best_point.png to {image_direc}")
 
+def plot_gselect_gsplit(df):
+    filtered_df = df[
+        (df['Num. PREGS'] == 32) &
+        (df['ROB entries'] == 64) &
+        (df['Num. SchedQ entries per FU'] == 4) &
+        (df['Num. ALU FUs'] == 3) &
+        (df['Num. MUL FUs'] == 2) &
+        (df['Fetch width'] == 4) &
+        (df['Dispatch width'] == 4) &
+        (df['branch_pattern_table_size'] == 16)
+    ].copy()
+
+    filtered_df['x_label'] = 'H=' + filtered_df['H'].astype(str) + ', P=' + filtered_df['P'].astype(str)
+
+    traces = filtered_df['trace'].unique()
+
+    for trace_val in traces:
+        subset = filtered_df[filtered_df['trace'] == trace_val]
+        
+        plt.figure(figsize=(8, 6))
+        sns.lineplot(data=subset, x='x_label', y='IPC', hue='Predictor (M)', marker='o')
+        plt.title(f'Trace: {trace_val}')
+        plt.xlabel('H and P')
+        plt.ylabel('IPC')
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        
+        save_path = os.path.join(image_direc, f"{trace_val}_split_gselect_plot.png")
+        plt.savefig(save_path, dpi=300)
+        print(f"Saved {save_path}")
+
 
 
 if __name__ == '__main__':
@@ -257,3 +288,4 @@ if __name__ == '__main__':
     plot_IPC_by_predictor_branch_pattern_table_size(df)
     plot_cor_matrix(df)
     plot_sactter_ICP_resource_utilizaition(df)
+    plot_gselect_gsplit(df)
