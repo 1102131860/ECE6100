@@ -207,6 +207,7 @@ def plot_gselect_gsplit(df):
         (df['Num. SchedQ entries per FU'] == 4) &
         (df['Num. ALU FUs'] == 3) &
         (df['Num. MUL FUs'] == 2) &
+        (df['Num. LSU FUs'] == 2) &
         (df['Fetch width'] == 4) &
         (df['Dispatch width'] == 4) # &
         # (df['branch_pattern_table_size'] == 16)
