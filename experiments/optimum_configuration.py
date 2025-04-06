@@ -213,9 +213,12 @@ def plot_gselect_gsplit(df):
         # (df['branch_pattern_table_size'] == 16)
     ].copy()
 
-    filtered_df['Branch Prediction Accuracy'] = (
-        (filtered_df['Total branch instructions'] - filtered_df['Branch Mispredictions']) / 
-        filtered_df['Total branch instructions']
+    filtered_df['Branch Prediction Accuracy'] = round(
+        100 * (
+            (filtered_df['Total branch instructions'] - filtered_df['Branch Mispredictions']) /
+            filtered_df['Total branch instructions']
+        ),
+        2
     )
 
     filtered_df['x_label'] = 'H=' + filtered_df['H'].astype(str) + ', P=' + filtered_df['P'].astype(str)
@@ -236,7 +239,7 @@ def plot_gselect_gsplit(df):
         # Accuracy (left y)
         ax1.plot(gselect['x_label'], gselect['Branch Prediction Accuracy'], marker='o', color='tab:blue', label='GSELECT (Accuracy)')
         ax1.plot(gsplit['x_label'], gsplit['Branch Prediction Accuracy'], marker='o', color='tab:orange', label='GSPLIT (Accuracy)')
-        ax1.set_ylabel('Branch Prediction Accuracy', color='tab:blue')
+        ax1.set_ylabel('Branch Prediction Accuracy (%)', color='tab:blue')
         ax1.tick_params(axis='y', labelcolor='tab:blue')
         ax1.set_xlabel('H and P')
         plt.xticks(rotation=45)
