@@ -18,9 +18,6 @@ files_list = [
 output_csv = "merge_output.csv"
 util_output_csv = "util_output.csv"
 optim_output_csv = "optim_output.csv"
-gsplit_P_0_csv = "gsplit_P_0.csv"
-gsplit_H_P_csv = "gsplit_H_P.csv"
-describe_IPC_csv = "describe_IPC.csv"
 
 def parse_config(text):
     config = {}
@@ -124,14 +121,6 @@ def find_optimum_pipeline_configuration(df):
         optimum_configs.append(optimum_config)
     return df.__class__(optimum_configs)  # return DataFrame
 
-def find_special_overlapping_cases(df):
-    # filter Predictor (M) with 'GSPLIT'
-    df_gsplit = df[df['Predictor (M)'] == 'GSPLIT']
-    # filter out P==0 or P==H
-    df_split_P_0 = df_gsplit[(df_gsplit['P'] == 0)]
-    df_split_H_P = df_gsplit[(df_gsplit['P'] == df_gsplit['H'])]
-    return df_split_P_0, df_split_H_P
-
 def plot_cor_matrix(df):
     cols = ["branch_pattern_table_size", "Fetch width", "Dispatch width", "Num. PREGS", "ROB entries",
             "reservation_station_size", "Num. ALU FUs", "Num. MUL FUs", "Num. LSU FUs", "IPC"]
@@ -159,68 +148,57 @@ def plot_box_IPC(df):
     plt.savefig(os.path.join(image_direc, "IPC_box_plot.png"), bbox_inches='tight', dpi=300)
     print("Saved IPC_box_plot.png to", image_direc)
 
-    ipc_desc = df.groupby('trace')['IPC'].describe()
-    ipc_desc.round(3).to_csv(describe_IPC_csv)
-    print("Save description IPC to", describe_IPC_csv)
-
-def plot_IPC_by_predictor_branch_pattern_table_size(df):
-    df_new = df.copy()
-    df_new['Predictor_with_Branch_Pattern_Table_Size(KB)'] = df_new['Predictor (M)'] + '_' + df_new['branch_pattern_table_size'].astype(str)
-
-    plt.figure(figsize=(12, 6))
-    sns.kdeplot(data=df_new, x='IPC', hue='Predictor_with_Branch_Pattern_Table_Size(KB)', common_norm=True, fill=False)
-    plt.title("KDE Plot of IPC vs Predictor with different Branch Pattern Table Size(KB)")
-    plt.savefig(os.path.join(image_direc, "kde_plot_IPC_branch_pattern_table_size.png"), bbox_inches='tight', dpi=300)
-    print("Saved kde_plot_IPC_branch_pattern_table_size.png to", image_direc)
-
 def plot_sactter_ICP_resource_utilizaition(df):
     traces = sorted(df['trace'].unique())
-    n = len(traces)
 
-    fig, axs = plt.subplots(n, 1, figsize=(8, 4 * n))
-
-    for i, trace in enumerate(traces):
+    for trace in traces:
         df_trace = df[df['trace'] == trace].copy()
-        
-        # find max IPC and 0.8 max_IPC
+
+        # Step 1: Find max IPC and 80% threshold
         max_ipc = df_trace['IPC'].max()
         threshold_80 = 0.8 * max_ipc
-        
-        # filter out IPC >= 80% 
+
+        # Step 2: Filter by IPC >= 80%
         df_filtered_80 = df_trace[df_trace['IPC'] >= threshold_80].copy()
-        
-        # filter out the least 10% resource_utilization
-        df_final = pd.DataFrame()
+
+        # Step 3: Filter lowest 10% resource utilization in the above
         ru_threshold = df_filtered_80['resource_utilization'].quantile(0.1)
         df_final = df_filtered_80[df_filtered_80['resource_utilization'] <= ru_threshold]
-        
-        # Draw scatter Points
-        ax = axs[i]
-        ax.scatter(df_final['resource_utilization'], df_final['IPC'], color='blue', alpha=0.8)
-        
-        # draw the horziontal line of 90% of max_IPC
+
+        # Step 4: Create figure for this trace only
+        plt.figure(figsize=(8, 6))
+        ax = plt.gca()
+
+        # Step 5: Scatter filtered points
+        ax.scatter(df_final['resource_utilization'], df_final['IPC'], color='blue', alpha=0.8, label='Filtered Configs')
+
+        # Step 6: Draw 90% IPC horizontal line
         threshold_90 = 0.9 * max_ipc
-        ax.axhline(threshold_90, color='green', linestyle='--', linewidth=1.5, label='90% IPC line')
-        
-        # for those of which IPC >= 90%, find the smallest resource_utilization
+        ax.axhline(threshold_90, color='green', linestyle='--', linewidth=1.5, label='90% IPC Line')
+
+        # Step 7: Highlight best config (IPC ≥ 90% and min RU)
         df_above_90 = df_trace[df_trace['IPC'] >= threshold_90]
         if not df_above_90.empty:
             best_point = df_above_90.loc[df_above_90['resource_utilization'].idxmin()]
-            ax.scatter(best_point['resource_utilization'], best_point['IPC'], 
-                       color='red', s=100, marker='*', label='Best Configuration')
-            ax.annotate(f"IPC: {best_point['IPC']:.2f}\nRU: {best_point['resource_utilization']}",
-                        (best_point['resource_utilization'], best_point['IPC']),
-                        textcoords="offset points", xytext=(5,5), ha='left', fontsize=8, color='red')
-        
-        ax.set_title(f"Filerted {trace} Trace (>= 80% best IPC and <= 10% UR)")
+            ax.scatter(best_point['resource_utilization'], best_point['IPC'],
+                       color='red', s=100, marker='*', label='Best Config')
+            ax.annotate(
+                f"IPC: {best_point['IPC']:.2f}\nRU: {best_point['resource_utilization']}",
+                (best_point['resource_utilization'], best_point['IPC']),
+                textcoords="offset points", xytext=(5, 5), ha='left', fontsize=8, color='red'
+            )
+
+        # Step 8: Format and save
+        ax.set_title(f"Trace: {trace} (Filtered ≥80% IPC & ≤10% RU)")
         ax.set_xlabel("Resource Utilization")
         ax.set_ylabel("IPC")
         ax.legend()
-    
-    plt.tight_layout()
-    save_path = os.path.join(image_direc, "scatter_filtered_and_best_point.png")
-    plt.savefig(save_path, bbox_inches='tight', dpi=300)
-    print(f"Saved scatter_filtered_and_best_point.png to {image_direc}")
+        plt.tight_layout()
+
+        save_path = os.path.join(image_direc, f"{trace}_scatter_filtered_best.png")
+        plt.savefig(save_path, bbox_inches='tight', dpi=300)
+        plt.close()
+        print(f"Saved: {save_path}")
 
 def plot_gselect_gsplit(df):
     filtered_df = df[
@@ -230,29 +208,56 @@ def plot_gselect_gsplit(df):
         (df['Num. ALU FUs'] == 3) &
         (df['Num. MUL FUs'] == 2) &
         (df['Fetch width'] == 4) &
-        (df['Dispatch width'] == 4) &
-        (df['branch_pattern_table_size'] == 16)
+        (df['Dispatch width'] == 4) # &
+        # (df['branch_pattern_table_size'] == 16)
     ].copy()
+
+    filtered_df['Branch Prediction Accuracy'] = (
+        (filtered_df['Total branch instructions'] - filtered_df['Branch Mispredictions']) / 
+        filtered_df['Total branch instructions']
+    )
 
     filtered_df['x_label'] = 'H=' + filtered_df['H'].astype(str) + ', P=' + filtered_df['P'].astype(str)
 
     traces = filtered_df['trace'].unique()
-
     for trace_val in traces:
         subset = filtered_df[filtered_df['trace'] == trace_val]
-        
-        plt.figure(figsize=(8, 6))
-        sns.lineplot(data=subset, x='x_label', y='IPC', hue='Predictor (M)', marker='o')
-        plt.title(f'Trace: {trace_val}')
-        plt.xlabel('H and P')
-        plt.ylabel('IPC')
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        
-        save_path = os.path.join(image_direc, f"{trace_val}_split_gselect_plot.png")
-        plt.savefig(save_path, dpi=300)
-        print(f"Saved {save_path}")
+        if subset.empty:
+            print(f"[Skipped] Trace {trace_val} has no data.")
+            continue
 
+        gselect = subset[subset['Predictor (M)'] == 'GSELECT']
+        gsplit = subset[subset['Predictor (M)'] == 'GSPLIT']
+
+        plt.figure(figsize=(10, 6))
+        ax1 = plt.gca()
+
+        # Accuracy (left y)
+        ax1.plot(gselect['x_label'], gselect['Branch Prediction Accuracy'], marker='o', color='tab:blue', label='GSELECT (Accuracy)')
+        ax1.plot(gsplit['x_label'], gsplit['Branch Prediction Accuracy'], marker='o', color='tab:orange', label='GSPLIT (Accuracy)')
+        ax1.set_ylabel('Branch Prediction Accuracy', color='tab:blue')
+        ax1.tick_params(axis='y', labelcolor='tab:blue')
+        ax1.set_xlabel('H and P')
+        plt.xticks(rotation=45)
+
+        # IPC (right y)
+        ax2 = ax1.twinx()
+        ax2.plot(gselect['x_label'], gselect['IPC'], marker='s', linestyle='--', color='tab:blue', label='GSELECT (IPC)')
+        ax2.plot(gsplit['x_label'], gsplit['IPC'], marker='s', linestyle='--', color='tab:orange', label='GSPLIT (IPC)')
+        ax2.set_ylabel('IPC', color='tab:orange')
+        ax2.tick_params(axis='y', labelcolor='tab:orange')
+
+        # Combine legends from both axes
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, loc='best')
+
+        plt.title(f'Trace: {trace_val}')
+        plt.tight_layout()
+        save_path = os.path.join(image_direc, f"{trace_val}_accuracy_ipc_dual_axis.png")
+        plt.savefig(save_path, dpi=300)
+        plt.close()
+        print(f"Saved: {save_path}")
 
 
 if __name__ == '__main__':
@@ -278,14 +283,7 @@ if __name__ == '__main__':
     optimum_df.to_csv(optim_output_csv, index=False)
     print(f"Save optimized configurations for each trace to {optim_output_csv}")
 
-    df_split_P_0, df_split_H_P = find_special_overlapping_cases(df)
-    df_split_P_0.to_csv(gsplit_P_0_csv, index=False)
-    print(f"Save split P=0 to {gsplit_P_0_csv}")
-    df_split_H_P.to_csv(gsplit_H_P_csv, index=False)
-    print(f"Save split P=H to {gsplit_H_P_csv}")
-
+    plot_gselect_gsplit(df)
     plot_box_IPC(df)
-    plot_IPC_by_predictor_branch_pattern_table_size(df)
     plot_cor_matrix(df)
     plot_sactter_ICP_resource_utilizaition(df)
-    plot_gselect_gsplit(df)
