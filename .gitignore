@@ -1,0 +1,12 @@
+debug_outs/
+debug_outs/*
+lib/
+lib/*
+ref_outs/
+ref_outs/*
+student_outs/
+student_outs/*
+6290docker*
+record_experiment*
+*.tar.gz
+*.pdf
