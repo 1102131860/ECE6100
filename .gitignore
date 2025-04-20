@@ -1,7 +1,5 @@
 debug_outs/
 debug_outs/*
-lib/
-lib/*
 ref_outs/
 ref_outs/*
 student_outs/
