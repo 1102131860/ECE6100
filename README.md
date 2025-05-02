@@ -1,4 +1,4 @@
-# ECE6100 Advanced Computer Archiecture
+# ECE6100 Advanced Computer Architecture
 
 This course covers serveral topics in the book `Computer Architecture: A Quantative Approach`:
 
