@@ -804,3 +804,71 @@ On a read access
 
 ![Working principle of load/store buffer](./Cache_images/image_33.png)
 
+## Cache Controller
+
+### System Verilog of a Simple Cache Controller (see the code in project5)
+
+The biggest change from prior versions of Verilog is that it borrows structures from C to make the code easier to read.
+
+![Block diagram of the simple cache using the SystemVerilog names](./Cache_images/image_34.png)
+
+- Not shown are the write enables for the cache tag memory and for the cache data memory, or the control signals for multiplexors that suppky data for the Data Write variable
+
+- Rather than have separate write enables on every word of the cache data block, the SystemVerilog reads the old value of the block into Data Write and then updates the word in that variable on a write.
+
+- It then writes the whole 128-bit block
+
+#### DM_cache_data.sv and DM_cache_tag.sv
+
+They define modules for the cache data ($\text{DM}\_\text{cahce}\_\text{data}$) and cache tag ($\text{DM}\_\text{cache}\_\text{tag}$). These memories can be read at any time, but **writes only occur on the positive clock edge** ($\text{posedge}(\text{clk})$) and **only if write enable is a 1** ($\text{data}\_\text{req}.\text{we}$ or $\text{tag}\_\text{req}.\text{we}$)
+
+#### DM_cache_fsm.sv
+
+It defines the inputs, outputs, and states of the FSM. The **inputs are the requests from the CPU** ($\text{cpu}\_\text{req}$) and **responses from memory** ($\text{mem}\_\text{data}$) ($\text{cpu}\_\text{req}$ and $\text{mem}\_\text{data}$ should be controlled by CPU Controller and Memory Controller, but we don't implement them here), and the **outputs are responses to the CPU** ($\text{cpu}\_\text{res}$) and **requests to memory** ($\text{mem}\_\text{req}$).
+
+```     
+        ------> cpu_req ------>       ------> mem_req ------>
+    CPU                         Cache                           Memory
+        <-----  cpu_res <------       <------ mem_res -------
+```
+
+The figure also declares **the internal variables (states)** needed by the FSM. For example, the current state and next state registers of the FSM are $\text{rstate}$ and $\text{vstate}$, repectively
+
+**Default values**
+
+It lists the default values of the control signals, including the word to be read or written from a block, setting the cache write enables to 0, and so on.
+
+These values are set every clock cycle, so the write enable for a portion of the cache -- for example, $\text{tag}\_\text{req}.\text{we}$ -- would be set to 1 for one clock cycle and then would be reset to 0 according to the Verilog.
+
+**State Transfer**
+
+- **Idle state** ($\text{idle}$)
+
+    - simply goes to the Compare Tag State ($\text{compare}\_\text{tag}$) if the CPU makes a valid request.
+
+- **Compare Tag state** ($\text{compare}\_\text{tag}$)
+
+    - It checks if the tags match and the entry is valid
+    
+        - If so, then it first sets the Cache Ready Signal ($\text{v}\_\text{cpu}\_\text{res}.\text{ready}$).
+    
+        - If the request is a write, it sets the tag field, then valid bit, and the dirty bit
+        
+        - The next state is Idle ($\text{idle}$)
+
+    - If it is a miss, then the state prepares to change the tag entry and valid and dirty bits.
+
+        - If the block to be replaced is clean or invalid, the next state is Allocate ($\text{Allocate}$)
+
+        - If the block to be replaced is dirty, then the next state is Write Back ($\text{write}\_\text{back}$)
+
+- **Allocate** ($\text{allocate}$)
+
+    - It keeps looping until the memory is ready; when it is, it goes to the Compare Tag State ($\text{compare}\_\text{tag}$)
+
+- **Write Back** ($\text{write}\_\text{back}$)
+
+    - Merely writes the dirty block to memory; once again looping until memory is ready
+
+    - When memory is ready, indicating the write is complete, we go to the Allocate state ($\text{Allocate}$)
+
