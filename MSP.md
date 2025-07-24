@@ -689,6 +689,38 @@ To detect more than on error or correct an error, we need a *distance-3 code*, w
 
 ![Hamming Code 10](./MSP_images/image_87.png)
 
+### Cyclic Redundancy Checks (CRC) - Error Coding Detection
+
+Different from Hamming Coding, which can both detect the error and correctify 1-bit error, Cyclic Redundancy Checks can only check the sending data frame is correct or not!
+
+![CRC concept](./MSP_images/image_94.png)
+
+### Galois Linear Feedback Shift Register (LFSR)
+
+**Galois Linear Feedback Shift Register (LFSR)** is a very famous LFSR which has faster response time compared to Fibonacci LFSR.
+
+- This is because those XOR gates are **placed between the flip-flops** and Galois LFSR **uses always two-input XOR gate**.
+
+![Galois Fields 1](./MSP_images/image_95.png)
+
+![Galois Fields 2](./MSP_images/image_96.png)
+
+![Galois Fields 3](./MSP_images/image_97.png)
+
+Here is an example that shows you how to implement CRC with Galois LFSR
+
+![CRC encoding](./MSP_images/image_98.png)
+
+![CRC decoding](./MSP_images/image_99.png)
+
+How to build a Galois LFSR
+
+![Galois Fields - Primitives](./MSP_images/image_100.png)
+
+![Primitive Polynomials](./MSP_images/image_101.png)
+
+![Building an LFSR from a Primitive Poly](./MSP_images/image_102.png)
+
 ## Timing Methodologies
 
 ### Edeg-sensitive Clocking
