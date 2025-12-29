@@ -820,11 +820,11 @@ The biggest change from prior versions of Verilog is that it borrows structures 
 
 #### DM_cache_data.sv and DM_cache_tag.sv
 
-They define modules for the cache data ($\text{DM}\_\text{cahce}\_\text{data}$) and cache tag ($\text{DM}\_\text{cache}\_\text{tag}$). These memories can be read at any time, but **writes only occur on the positive clock edge** ($\text{posedge}(\text{clk})$) and **only if write enable is a 1** ($\text{data}\_\text{req}.\text{we}$ or $\text{tag}\_\text{req}.\text{we}$)
+They define modules for the cache data (`DM_cache_data`) and cache tag (`DM_cache_tag`). These memories can be read at any time, but **writes only occur on the positive clock edge** (`@(posedge clk)`) and **only if write enable is a 1** (`data_req.we` or `tag_req.we`)
 
 #### DM_cache_fsm.sv
 
-It defines the inputs, outputs, and states of the FSM. The **inputs are the requests from the CPU** ($\text{cpu}\_\text{req}$) and **responses from memory** ($\text{mem}\_\text{data}$) ($\text{cpu}\_\text{req}$ and $\text{mem}\_\text{data}$ should be controlled by CPU Controller and Memory Controller, but we don't implement them here), and the **outputs are responses to the CPU** ($\text{cpu}\_\text{res}$) and **requests to memory** ($\text{mem}\_\text{req}$).
+It defines the inputs, outputs, and states of the FSM. The **inputs are the requests from the CPU** (`cpu_req`) and **responses from memory** (`mem_data`) (`cpu_req` and `mem_data` should be controlled by CPU Controller and Memory Controller, but we don't implement them here), and the **outputs are responses to the CPU** (`cpu_res`) and **requests to memory** (`mem_res`).
 
 ```     
         ------> cpu_req ------>       ------> mem_req ------>
@@ -832,43 +832,43 @@ It defines the inputs, outputs, and states of the FSM. The **inputs are the requ
         <-----  cpu_res <------       <------ mem_res -------
 ```
 
-The figure also declares **the internal variables (states)** needed by the FSM. For example, the current state and next state registers of the FSM are $\text{rstate}$ and $\text{vstate}$, repectively
+The figure also declares **the internal variables (states)** needed by the FSM. For example, the current state and next state registers of the FSM are `rstate` and `vstate`, repectively
 
 **Default values**
 
 It lists the default values of the control signals, including the word to be read or written from a block, setting the cache write enables to 0, and so on.
 
-These values are set every clock cycle, so the write enable for a portion of the cache -- for example, $\text{tag}\_\text{req}.\text{we}$ -- would be set to 1 for one clock cycle and then would be reset to 0 according to the Verilog.
+These values are set every clock cycle, so the write enable for a portion of the cache -- for example, `tag_req.we` -- would be set to 1 for one clock cycle and then would be reset to 0 according to the Verilog.
 
 **State Transfer**
 
-- **Idle state** ($\text{idle}$)
+- **Idle state** (`idle`)
 
-    - simply goes to the Compare Tag State ($\text{compare}\_\text{tag}$) if the CPU makes a valid request.
+    - simply goes to the Compare Tag State (`compare_tag`) if the CPU makes a valid request.
 
-- **Compare Tag state** ($\text{compare}\_\text{tag}$)
+- **Compare Tag state** (`compare_tag`)
 
     - It checks if the tags match and the entry is valid
     
-        - If so, then it first sets the Cache Ready Signal ($\text{v}\_\text{cpu}\_\text{res}.\text{ready}$).
+        - If so, then it first sets the Cache Ready Signal (`v_cpu_res.ready`).
     
-        - If the request is a write, it sets the tag field, then valid bit, and the dirty bit
+        - If the request is a write, it sets <u>the tag field</u>, then <u>valid bit</u>, and the <u>dirty bit</u>
         
-        - The next state is Idle ($\text{idle}$)
+        - The next state is Idle (`idle`)
 
-    - If it is a miss, then the state prepares to change the tag entry and valid and dirty bits.
+    - If it is a miss, then the state prepares to <u>change the tag entry and valid and dirty bits</u>.
 
-        - If the block to be replaced is clean or invalid, the next state is Allocate ($\text{Allocate}$)
+        - If the block to be replaced is clean or invalid, the next state is Allocate (`allocate`)
 
-        - If the block to be replaced is dirty, then the next state is Write Back ($\text{write}\_\text{back}$)
+        - If the block to be replaced is dirty, then the next state is Write Back (`write_back`)
 
-- **Allocate** ($\text{allocate}$)
+- **Allocate** (`allocate`)
 
-    - It keeps looping until the memory is ready; when it is, it goes to the Compare Tag State ($\text{compare}\_\text{tag}$)
+    - It keeps looping until the memory is ready; when it is, it goes to the Compare Tag State (`compare_tage`)
 
-- **Write Back** ($\text{write}\_\text{back}$)
+- **Write Back** (`write_back`)
 
     - Merely writes the dirty block to memory; once again looping until memory is ready
 
-    - When memory is ready, indicating the write is complete, we go to the Allocate state ($\text{Allocate}$)
+    - When memory is ready, indicating the write is complete, we go to the Allocate state (`allocate`)
 

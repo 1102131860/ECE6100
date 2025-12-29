@@ -4,3 +4,4 @@ DocuSign/
 Project/
 week*/
 *.pdf
+.gitignore
